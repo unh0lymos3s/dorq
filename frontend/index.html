@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>dorq — research to backtest</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --accent: #6c8cff;
+    --accent-dim: #3a4a88;
+    --text: #e2e4ef;
+    --muted: #6b7098;
+    --success: #4caf82;
+    --error: #e05a5a;
+    --warn: #e0a84a;
+    --radius: 8px;
+    --font: 'Inter', system-ui, sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.6;
+    min-height: 100vh;
+    padding: 32px 16px 64px;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 40px;
+  }
+  header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  header h1 span { color: var(--accent); }
+  header p { color: var(--muted); margin-top: 6px; font-size: 13px; }
+
+  .pipeline {
+    max-width: 680px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .step.active { border-color: var(--accent-dim); }
+  .step.done { border-color: #2d4a36; }
+
+  .step-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    cursor: default;
+  }
+  .step-num {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    transition: background 0.2s, color 0.2s;
+  }
+  .step.active .step-num { background: var(--accent); color: #fff; }
+  .step.done .step-num { background: var(--success); color: #fff; }
+  .step-title { font-weight: 600; font-size: 15px; }
+  .step-badge {
+    margin-left: auto;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--border);
+    color: var(--muted);
+  }
+  .step.done .step-badge { background: #1e3a28; color: var(--success); }
+  .step.active .step-badge { background: var(--accent-dim); color: #c0caff; }
+
+  .step-body {
+    padding: 0 18px 18px;
+    display: none;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .step.active .step-body { display: flex; }
+
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  label { font-size: 12px; color: var(--muted); font-weight: 500; letter-spacing: 0.3px; }
+  input, select, textarea {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 70px; }
+  select option { background: var(--surface); }
+
+  .row { display: flex; gap: 10px; }
+  .row .field { flex: 1; }
+
+  .tab-row { display: flex; gap: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .tab-btn {
+    flex: 1; background: none; border: none; color: var(--muted);
+    padding: 8px; font-size: 13px; font-family: var(--font);
+    cursor: pointer; transition: background 0.15s, color 0.15s;
+  }
+  .tab-btn.active { background: var(--accent-dim); color: #c0caff; }
+
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    color: var(--muted);
+  }
+  #drop-zone.over, #drop-zone:hover { border-color: var(--accent); background: #1a1d3a; color: var(--text); }
+  #drop-zone .icon { font-size: 28px; margin-bottom: 6px; }
+  #drop-zone p { font-size: 13px; }
+  #drop-zone input[type=file] { display: none; }
+
+  button.primary {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 9px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    align-self: flex-start;
+    transition: opacity 0.15s;
+  }
+  button.primary:hover { opacity: 0.85; }
+  button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .info-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .info-box strong { color: var(--text); }
+
+  .badge-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge {
+    background: var(--border);
+    color: var(--text);
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 20px;
+  }
+
+  .error-msg {
+    background: #2a1010;
+    border: 1px solid #5a2020;
+    border-radius: var(--radius);
+    color: var(--error);
+    padding: 10px 14px;
+    font-size: 12px;
+    white-space: pre-wrap;
+  }
+
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Metrics table */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+  }
+  .metric-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+  }
+  .metric-card .m-label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .metric-card .m-value { font-size: 20px; font-weight: 700; }
+  .metric-card .m-value.pos { color: var(--success); }
+  .metric-card .m-value.neg { color: var(--error); }
+
+  /* Charts */
+  .charts { display: flex; flex-direction: column; gap: 12px; }
+  .charts img { width: 100%; border-radius: var(--radius); border: 1px solid var(--border); }
+
+  /* Strategy preview */
+  .spec-preview {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .spec-row { display: flex; gap: 8px; }
+  .spec-row .sk { color: var(--muted); min-width: 120px; flex-shrink: 0; }
+  .spec-row .sv { color: var(--text); word-break: break-word; }
+  .spec-section { font-size: 11px; font-weight: 700; color: var(--accent); margin: 8px 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  details > summary { cursor: pointer; font-size: 12px; color: var(--muted); user-select: none; }
+  details[open] > summary { color: var(--text); }
+  details .spec-preview { margin-top: 8px; }
+
+  hr { border: none; border-top: 1px solid var(--border); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>dorq</span></h1>
+  <p>Upload a research paper → extract a strategy → run a backtest</p>
+</header>
+
+<div class="pipeline">
+
+  <!-- ── Step 1: Paper ── -->
+  <div class="step active" id="step1">
+    <div class="step-header">
+      <div class="step-num">1</div>
+      <div class="step-title">Upload Paper</div>
+      <div class="step-badge">required</div>
+    </div>
+    <div class="step-body">
+      <div class="tab-row">
+        <button class="tab-btn active" id="tab-file" onclick="switchTab('file')">PDF File</button>
+        <button class="tab-btn" id="tab-url" onclick="switchTab('url')">URL</button>
+      </div>
+
+      <div id="pane-file">
+        <div id="drop-zone" onclick="document.getElementById('file-input').click()"
+             ondragover="event.preventDefault();this.classList.add('over')"
+             ondragleave="this.classList.remove('over')"
+             ondrop="handleDrop(event)">
+          <div class="icon">📄</div>
+          <p>Drop a PDF here, or click to browse</p>
+          <input type="file" id="file-input" accept=".pdf" onchange="handleFileChange(event)" />
+        </div>
+        <div id="file-name" style="font-size:12px;color:var(--muted);display:none;"></div>
+      </div>
+
+      <div id="pane-url" style="display:none;">
+        <div class="field">
+          <label>Paper URL</label>
+          <input type="url" id="paper-url" placeholder="https://arxiv.org/pdf/..." />
+        </div>
+      </div>
+
+      <div id="step1-error" class="error-msg" style="display:none;"></div>
+
+      <button class="primary" id="btn-upload" onclick="uploadPaper()">Parse Paper</button>
+
+      <div id="step1-result" style="display:none;">
+        <div class="info-box">
+          <strong>Paper parsed</strong>
+          <div style="margin-top:6px;">
+            <span class="spec-row"><span class="sk">Paper ID</span><span class="sv" id="r-paper-id">—</span></span>
+            <span class="spec-row"><span class="sk">Sections found</span><span class="sv" id="r-sections">—</span></span>
+            <span class="spec-row"><span class="sk">Markdown length</span><span class="sv" id="r-markdown-len">—</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 2: LLM ── -->
+  <div class="step" id="step2">
+    <div class="step-header">
+      <div class="step-num">2</div>
+      <div class="step-title">Generate Strategy</div>
+      <div class="step-badge">LLM</div>
+    </div>
+    <div class="step-body">
+      <div class="row">
+        <div class="field">
+          <label>Provider</label>
+          <select id="llm-provider">
+            <option value="openai">OpenAI</option>
+            <option value="anthropic">Anthropic</option>
+            <option value="groq">Groq</option>
+            <option value="gemini">Gemini</option>
+            <option value="azure">Azure</option>
+            <option value="bedrock">Bedrock</option>
+            <option value="ollama">Ollama</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Model</label>
+          <input type="text" id="llm-model" placeholder="e.g. gpt-4o" />
+        </div>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input type="password" id="llm-key" placeholder="sk-..." autocomplete="off" />
+      </div>
+
+      <div id="step2-error" class="error-msg" style="display:none;"></div>
+
+      <button class="primary" id="btn-generate" onclick="generateStrategy()">Generate Strategy</button>
+
+      <div id="step2-result" style="display:none;">
+        <details>
+          <summary>View strategy spec ▾</summary>
+          <div class="spec-preview" id="spec-preview"></div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 3: Backtest ── -->
+  <div class="step" id="step3">
+    <div class="step-header">
+      <div class="step-num">3</div>
+      <div class="step-title">Run Backtest</div>
+      <div class="step-badge">Alpaca</div>
+    </div>
+    <div class="step-body">
+      <div class="field">
+        <label>Alpaca API Key</label>
+        <input type="password" id="alpaca-key" placeholder="PK..." autocomplete="off" />
+      </div>
+      <div class="field">
+        <label>Alpaca Secret Key</label>
+        <input type="password" id="alpaca-secret" placeholder="..." autocomplete="off" />
+      </div>
+
+      <div id="step3-error" class="error-msg" style="display:none;"></div>
+
+      <button class="primary" id="btn-backtest" onclick="runBacktest()">Run Backtest</button>
+    </div>
+  </div>
+
+  <!-- ── Step 4: Results ── -->
+  <div class="step" id="step4" style="display:none;">
+    <div class="step-header">
+      <div class="step-num">4</div>
+      <div class="step-title">Results</div>
+      <div class="step-badge">done</div>
+    </div>
+    <div class="step-body">
+      <div class="metrics-grid" id="metrics-grid"></div>
+      <hr />
+      <div class="charts" id="charts-container"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = '';  // same origin
+
+let state = {
+  tab: 'file',
+  file: null,
+  paperId: null,
+  strategySpec: null,
+};
+
+// ── Tab switch ──
+function switchTab(tab) {
+  state.tab = tab;
+  document.getElementById('pane-file').style.display = tab === 'file' ? '' : 'none';
+  document.getElementById('pane-url').style.display  = tab === 'url'  ? '' : 'none';
+  document.getElementById('tab-file').classList.toggle('active', tab === 'file');
+  document.getElementById('tab-url').classList.toggle('active', tab === 'url');
+}
+
+// ── File handling ──
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('drop-zone').classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f) setFile(f);
+}
+function handleFileChange(e) { if (e.target.files[0]) setFile(e.target.files[0]); }
+function setFile(f) {
+  state.file = f;
+  const el = document.getElementById('file-name');
+  el.textContent = `Selected: ${f.name} (${(f.size/1024).toFixed(1)} KB)`;
+  el.style.display = '';
+}
+
+// ── Helpers ──
+function setLoading(btnId, loading, label) {
+  const btn = document.getElementById(btnId);
+  btn.disabled = loading;
+  btn.innerHTML = loading ? `<span class="spinner"></span>${label}` : label;
+}
+function showError(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.style.display = msg ? '' : 'none';
+}
+function markDone(stepId) {
+  const el = document.getElementById(stepId);
+  el.classList.remove('active');
+  el.classList.add('done');
+  const badge = el.querySelector('.step-badge');
+  if (badge) badge.textContent = '✓ done';
+}
+function activateStep(stepId) {
+  const el = document.getElementById(stepId);
+  el.classList.add('active');
+}
+
+// ── Step 1: Upload ──
+async function uploadPaper() {
+  showError('step1-error', '');
+  setLoading('btn-upload', true, 'Parsing…');
+
+  try {
+    let resp;
+    if (state.tab === 'file') {
+      if (!state.file) throw new Error('Please select a PDF file.');
+      const fd = new FormData();
+      fd.append('file', state.file);
+      resp = await fetch(`${API}/papers/upload`, { method: 'POST', body: fd });
+    } else {
+      const url = document.getElementById('paper-url').value.trim();
+      if (!url) throw new Error('Please enter a URL.');
+      resp = await fetch(`${API}/papers/url`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+    }
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const data = await resp.json();
+    state.paperId = data.paper_id;
+
+    document.getElementById('r-paper-id').textContent = data.paper_id;
+    document.getElementById('r-sections').textContent = (data.sections_found || []).join(', ') || 'none';
+    document.getElementById('r-markdown-len').textContent = `${data.markdown_length?.toLocaleString()} chars`;
+    document.getElementById('step1-result').style.display = '';
+
+    markDone('step1');
+    activateStep('step2');
+  } catch (err) {
+    showError('step1-error', err.message);
+  } finally {
+    setLoading('btn-upload', false, 'Parse Paper');
+  }
+}
+
+// ── Step 2: Generate strategy ──
+async function generateStrategy() {
+  showError('step2-error', '');
+  if (!state.paperId) { showError('step2-error', 'Complete Step 1 first.'); return; }
+
+  const provider = document.getElementById('llm-provider').value;
+  const model    = document.getElementById('llm-model').value.trim();
+  const api_key  = document.getElementById('llm-key').value.trim();
+  if (!model)   { showError('step2-error', 'Enter a model name.'); return; }
+  if (!api_key) { showError('step2-error', 'Enter an API key.'); return; }
+
+  setLoading('btn-generate', true, 'Generating…');
+
+  try {
+    const resp = await fetch(`${API}/strategies/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ paper_id: state.paperId, provider, model, api_key }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const spec = await resp.json();
+    state.strategySpec = spec;
+
+    renderSpecPreview(spec);
+    document.getElementById('step2-result').style.display = '';
+
+    markDone('step2');
+    activateStep('step3');
+  } catch (err) {
+    showError('step2-error', err.message);
+  } finally {
+    setLoading('btn-generate', false, 'Generate Strategy');
+  }
+}
+
+function renderSpecPreview(spec) {
+  const el = document.getElementById('spec-preview');
+  const row = (k, v) => `<div class="spec-row"><span class="sk">${k}</span><span class="sv">${v}</span></div>`;
+  const sec = (t) => `<div class="spec-section">${t}</div>`;
+  el.innerHTML = [
+    row('Title', spec.title),
+    row('Assets', spec.assets?.join(', ')),
+    row('Timeframe', spec.timeframe),
+    row('Date range', spec.date_range?.join(' → ')),
+    row('Position sizing', spec.position_sizing),
+    spec.risk_params?.stop_loss_pct  != null ? row('Stop loss', spec.risk_params.stop_loss_pct + '%') : '',
+    spec.risk_params?.take_profit_pct != null ? row('Take profit', spec.risk_params.take_profit_pct + '%') : '',
+    sec('Entry conditions'),
+    (spec.entry_conditions || []).map(c => row('', c)).join(''),
+    sec('Exit conditions'),
+    (spec.exit_conditions  || []).map(c => row('', c)).join(''),
+    sec('Indicators'),
+    (spec.indicators || []).map(i => row(i.name, JSON.stringify(i.params))).join(''),
+  ].join('');
+}
+
+// ── Step 3: Backtest ──
+async function runBacktest() {
+  showError('step3-error', '');
+  if (!state.strategySpec) { showError('step3-error', 'Complete Step 2 first.'); return; }
+
+  const alpaca_api_key    = document.getElementById('alpaca-key').value.trim();
+  const alpaca_secret_key = document.getElementById('alpaca-secret').value.trim();
+  if (!alpaca_api_key)    { showError('step3-error', 'Enter Alpaca API key.'); return; }
+  if (!alpaca_secret_key) { showError('step3-error', 'Enter Alpaca Secret key.'); return; }
+
+  setLoading('btn-backtest', true, 'Running backtest…');
+
+  try {
+    const resp = await fetch(`${API}/backtest/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        strategy_spec: state.strategySpec,
+        alpaca_api_key,
+        alpaca_secret_key,
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+
+    const result = await resp.json();
+
+    markDone('step3');
+    renderResults(result);
+  } catch (err) {
+    showError('step3-error', err.message);
+  } finally {
+    setLoading('btn-backtest', false, 'Run Backtest');
+  }
+}
+
+// ── Step 4: Results ──
+function renderResults(result) {
+  const step4 = document.getElementById('step4');
+  step4.style.display = '';
+  step4.classList.add('active');
+
+  const grid = document.getElementById('metrics-grid');
+  grid.innerHTML = '';
+  const metrics = result.metrics || {};
+
+  const fmt = {
+    total_return:    v => ({ val: (v * 100).toFixed(2) + '%', pos: v >= 0 }),
+    annualized_return: v => ({ val: (v * 100).toFixed(2) + '%', pos: v >= 0 }),
+    sharpe_ratio:    v => ({ val: v.toFixed(3), pos: v >= 0 }),
+    max_drawdown:    v => ({ val: (v * 100).toFixed(2) + '%', pos: v >= 0 }),
+    win_rate:        v => ({ val: (v * 100).toFixed(1) + '%', pos: true }),
+    total_trades:    v => ({ val: String(v), pos: null }),
+    calmar_ratio:    v => ({ val: v.toFixed(3), pos: v >= 0 }),
+    volatility:      v => ({ val: (v * 100).toFixed(2) + '%', pos: null }),
+  };
+
+  const labels = {
+    total_return: 'Total Return', annualized_return: 'Ann. Return',
+    sharpe_ratio: 'Sharpe', max_drawdown: 'Max Drawdown',
+    win_rate: 'Win Rate', total_trades: 'Trades',
+    calmar_ratio: 'Calmar', volatility: 'Volatility',
+  };
+
+  for (const [k, v] of Object.entries(metrics)) {
+    if (v == null) continue;
+    const card = document.createElement('div');
+    card.className = 'metric-card';
+    const f = fmt[k];
+    const { val, pos } = f ? f(v) : { val: typeof v === 'number' ? v.toFixed(4) : String(v), pos: null };
+    const cls = pos === true ? 'pos' : pos === false ? 'neg' : '';
+    card.innerHTML = `<div class="m-label">${labels[k] || k}</div><div class="m-value ${cls}">${val}</div>`;
+    grid.appendChild(card);
+  }
+
+  const chartsEl = document.getElementById('charts-container');
+  chartsEl.innerHTML = '';
+  for (const b64 of result.charts || []) {
+    const img = document.createElement('img');
+    img.src = `data:image/png;base64,${b64}`;
+    img.alt = 'backtest chart';
+    chartsEl.appendChild(img);
+  }
+
+  step4.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+</script>
+</body>
+</html>

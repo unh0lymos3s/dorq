@@ -1,8 +1,11 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import litellm
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.routes import backtest, papers, strategies
 from config import settings
@@ -43,3 +46,12 @@ app.include_router(backtest.router)
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+_FRONTEND = Path(__file__).parent / "frontend"
+app.mount("/static", StaticFiles(directory=_FRONTEND), name="static")
+
+
+@app.get("/")
+async def index():
+    return FileResponse(_FRONTEND / "index.html")
