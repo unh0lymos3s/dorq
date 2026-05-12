@@ -1,14 +1,13 @@
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(prefix="/papers", tags=["papers"])
 
 
 @router.post("/upload")
 async def upload_paper():
-    return JSONResponse(status_code=501, content={"detail": "not implemented"})
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "not implemented")
 
 
 @router.post("/url")
 async def paper_from_url():
-    return JSONResponse(status_code=501, content={"detail": "not implemented"})
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "not implemented")

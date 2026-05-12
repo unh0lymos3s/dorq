@@ -10,6 +10,7 @@ from config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.papers = {}
+    app.state.strategies = {}
     app.state.backtests = {}
     yield
 
@@ -18,8 +19,8 @@ app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=settings.cors_origins,
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 

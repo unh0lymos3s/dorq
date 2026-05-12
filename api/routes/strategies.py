@@ -1,9 +1,8 @@
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, status
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 
 
 @router.post("/generate")
 async def generate_strategy():
-    return JSONResponse(status_code=501, content={"detail": "not implemented"})
+    raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "not implemented")

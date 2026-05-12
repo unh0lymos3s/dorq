@@ -1,10 +1,12 @@
-from typing import Any
-from pydantic import BaseModel
+from datetime import date
+from pydantic import BaseModel, model_validator
+
+IndicatorParam = float | int | str | bool
 
 
 class IndicatorDef(BaseModel):
     name: str
-    params: dict[str, Any]
+    params: dict[str, IndicatorParam]
 
 
 class RiskParams(BaseModel):
@@ -17,9 +19,16 @@ class StrategySpec(BaseModel):
     summary: str
     assets: list[str]
     timeframe: str
-    date_range: tuple[str, str]
+    date_range: tuple[date, date]
     indicators: list[IndicatorDef]
     entry_conditions: list[str]
     exit_conditions: list[str]
     position_sizing: str
     risk_params: RiskParams
+
+    @model_validator(mode="after")
+    def _check_date_range(self) -> "StrategySpec":
+        start, end = self.date_range
+        if start >= end:
+            raise ValueError("date_range start must be before end")
+        return self
