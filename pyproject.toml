@@ -12,6 +12,7 @@ dependencies = [
     "pydantic-settings",
     "httpx",
     "docling>=2.93.0",
+    "litellm>=1.83.14",
 ]
 
 [dependency-groups]
