@@ -2,7 +2,7 @@
 Tests for core/document/parser.py and core/document/extractor.py.
 
 parse_pdf / parse_url call docling which downloads ML models on first run
-and is slow; these tests are marked integration and skipped in CI unless
+and is slow; these tests are marked integration and skipped unless
 DORQ_RUN_INTEGRATION=1 is set.
 """
 
@@ -31,7 +31,7 @@ SAMPLE_MARKDOWN = textwrap.dedent("""
 
     Momentum has been documented since the 1990s.
 
-    ## Methodology
+    ## 2. Methods
 
     We sort stocks into deciles by 12-1 month return.
 
@@ -48,13 +48,20 @@ SAMPLE_MARKDOWN = textwrap.dedent("""
 def test_extract_sections_finds_known_headings():
     sections = extract_sections(SAMPLE_MARKDOWN)
     assert sections["abstract"] != ""
-    assert sections["methodology"] != ""
+    assert sections["methodology"] != ""  # "2. Methods" → methodology via synonym
     assert sections["results"] != ""
     assert sections["conclusion"] != ""
 
 
+def test_extract_sections_numeric_prefix_stripped():
+    """'2. Methods' should map to methodology."""
+    sections = extract_sections(SAMPLE_MARKDOWN)
+    assert sections["methodology"] != ""
+
+
 def test_extract_sections_missing_heading_returns_empty_string():
     sections = extract_sections(SAMPLE_MARKDOWN)
+    # "findings" is a distinct key from "results"; SAMPLE_MARKDOWN has no findings heading
     assert sections["findings"] == ""
 
 
@@ -77,16 +84,32 @@ def test_extract_sections_case_insensitive():
     assert sections["methodology"] != ""
 
 
+def test_extract_sections_synonym_methods():
+    md = "## Methods\n\nWe ran OLS."
+    sections = extract_sections(md)
+    assert sections["methodology"] != ""
+
+
+def test_extract_sections_synonym_discussion():
+    md = "## Discussion\n\nResults suggest X."
+    sections = extract_sections(md)
+    assert sections["findings"] != ""
+
+
+def test_extract_sections_is_idempotent():
+    s1 = extract_sections(SAMPLE_MARKDOWN)
+    s2 = extract_sections(SAMPLE_MARKDOWN)
+    assert s1 == s2
+
+
 # ---------------------------------------------------------------------------
 # parser — integration, requires docling + network (model download)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(SKIP_INTEGRATION, reason="set DORQ_RUN_INTEGRATION=1 to run")
-@pytest.mark.asyncio
 async def test_parse_url_returns_nonempty_markdown():
     from core.document.parser import parse_url
 
-    # Faber's Tactical Asset Allocation paper (public PDF)
     url = "https://papers.ssrn.com/sol3/Delivery.cfm/SSRN_ID962461_code328883.pdf"
     markdown = await parse_url(url)
     assert isinstance(markdown, str)
@@ -94,9 +117,7 @@ async def test_parse_url_returns_nonempty_markdown():
 
 
 @pytest.mark.skipif(SKIP_INTEGRATION, reason="set DORQ_RUN_INTEGRATION=1 to run")
-@pytest.mark.asyncio
-async def test_parse_pdf_sections_nonempty(tmp_path):
-    """Download a known PDF, parse it, assert at least one section extracted."""
+async def test_parse_pdf_sections_nonempty():
     import httpx
 
     from core.document.parser import parse_pdf

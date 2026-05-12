@@ -5,13 +5,19 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import backtest, papers, strategies
 from config import settings
+from core.stores import LRUStore
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.papers = {}
-    app.state.strategies = {}
-    app.state.backtests = {}
+    # Warm up docling weights before the first request
+    from core.document.parser import warmup
+    import asyncio
+    await asyncio.get_running_loop().run_in_executor(None, warmup)
+
+    app.state.papers = LRUStore(maxsize=128)
+    app.state.strategies = LRUStore(maxsize=128)
+    app.state.backtests = LRUStore(maxsize=128)
     yield
 
 
