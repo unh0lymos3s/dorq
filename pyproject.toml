@@ -11,6 +11,7 @@ dependencies = [
     "pydantic>=2",
     "pydantic-settings",
     "httpx",
+    "docling>=2.93.0",
 ]
 
 [dependency-groups]
@@ -18,3 +19,6 @@ dev = [
     "pytest",
     "pytest-asyncio",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
