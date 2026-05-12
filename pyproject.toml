@@ -13,6 +13,13 @@ dependencies = [
     "httpx",
     "docling>=2.93.0",
     "litellm>=1.83.14",
+    "alpaca-py>=0.43.4",
+    "pandas>=3.0.3",
+    "numpy>=2.2.6",
+    "pandas-ta>=0.4.71b0",
+    "vectorbt>=0.28.2",
+    "plotly>=6.7.0",
+    "kaleido>=1.3.0",
 ]
 
 [dependency-groups]
