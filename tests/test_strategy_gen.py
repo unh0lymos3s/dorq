@@ -61,10 +61,9 @@ async def test_raises_on_llm_error_key(mock_complete):
 
 
 async def test_retries_on_invalid_json_then_succeeds(mock_complete):
-    valid_content = json.dumps(VALID_SPEC)
     mock_complete.side_effect = [
         _make_response("not valid json{{{{"),
-        _make_response(valid_content),
+        _make_response(json.dumps(VALID_SPEC)),
     ]
     spec = await generate_strategy(PAPER, "openai", "gpt-4o", "sk-test")
     assert isinstance(spec, StrategySpec)
@@ -95,21 +94,54 @@ async def test_no_json_mode_for_anthropic(mock_complete):
 
 
 async def test_retry_message_includes_prefix(mock_complete):
-    valid_content = json.dumps(VALID_SPEC)
     mock_complete.side_effect = [
         _make_response("bad json"),
-        _make_response(valid_content),
+        _make_response(json.dumps(VALID_SPEC)),
     ]
     await generate_strategy(PAPER, "openai", "gpt-4o", "sk-test")
     retry_user_msg = mock_complete.call_args_list[1].kwargs["messages"][1]["content"]
     assert "not valid JSON" in retry_user_msg
 
 
+async def test_strips_markdown_fences(mock_complete):
+    fenced = f"```json\n{json.dumps(VALID_SPEC)}\n```"
+    mock_complete.return_value.choices[0].message.content = fenced
+    spec = await generate_strategy(PAPER, "anthropic", "claude-sonnet-4-6", "sk-test")
+    assert isinstance(spec, StrategySpec)
+
+
+async def test_none_content_retries_then_raises(mock_complete):
+    mock_complete.side_effect = [
+        _make_response(None),
+        _make_response(None),
+    ]
+    with pytest.raises(ValueError, match="llm_invalid_json"):
+        await generate_strategy(PAPER, "openai", "gpt-4o", "sk-test")
+
+
+async def test_list_json_raises_llm_invalid_json(mock_complete):
+    mock_complete.side_effect = [
+        _make_response(json.dumps([VALID_SPEC])),  # list, not dict
+        _make_response(json.dumps([VALID_SPEC])),
+    ]
+    with pytest.raises(ValueError, match="llm_invalid_json"):
+        await generate_strategy(PAPER, "openai", "gpt-4o", "sk-test")
+
+
+async def test_timeout_and_num_retries_set(mock_complete):
+    mock_complete.return_value.choices[0].message.content = json.dumps(VALID_SPEC)
+    await generate_strategy(PAPER, "openai", "gpt-4o", "sk-test")
+    call_kwargs = mock_complete.call_args.kwargs
+    assert call_kwargs.get("timeout") == 60
+    assert call_kwargs.get("num_retries") == 0
+    assert call_kwargs.get("max_tokens") == 2048
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
-def _make_response(content: str):
+def _make_response(content):
     resp = AsyncMock()
-    resp.choices[0].message.content = content
+    resp.choices[0].message.content = content or ""
     return resp

@@ -8,25 +8,22 @@ from core.models.paper import ParsedPaper
 from core.models.strategy import StrategySpec
 
 
-def _build_messages(parsed_paper: ParsedPaper, retry: bool = False) -> list[dict]:
-    user_content = USER_PROMPT_TEMPLATE.format(
-        abstract=parsed_paper.sections.get("abstract", ""),
-        methodology=parsed_paper.sections.get("methodology", ""),
-        results=parsed_paper.sections.get("results", ""),
-    )
-    if retry:
-        user_content = RETRY_PREFIX + user_content
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
-    ]
+def _strip_fences(text: str) -> str:
+    s = text.strip()
+    if s.startswith("```"):
+        s = s.split("\n", 1)[1] if "\n" in s else s
+        if s.endswith("```"):
+            s = s[:-3].rstrip()
+    return s
 
 
 def _parse_response(content: str) -> StrategySpec:
-    data = json.loads(content)
+    data = json.loads(_strip_fences(content))
+    if not isinstance(data, dict):
+        raise TypeError("LLM returned non-object JSON")
     if "error" in data:
         raise ValueError(data["error"])
-    return StrategySpec(**data)
+    return StrategySpec.model_validate(data)
 
 
 async def generate_strategy(
@@ -37,14 +34,21 @@ async def generate_strategy(
 ) -> StrategySpec:
     kwargs = build_litellm_kwargs(provider, model, api_key)
 
-    for attempt, retry in enumerate([False, True]):
-        messages = _build_messages(parsed_paper, retry=retry)
+    user_content = USER_PROMPT_TEMPLATE.format(
+        abstract=parsed_paper.sections.get("abstract", ""),
+        methodology=parsed_paper.sections.get("methodology", ""),
+        results=parsed_paper.sections.get("results", ""),
+    )
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_content},
+    ]
+
+    for attempt in range(2):
         content = await complete(messages, **kwargs)
         try:
             return _parse_response(content)
-        except (json.JSONDecodeError, ValidationError, KeyError):
+        except (json.JSONDecodeError, ValidationError, TypeError):
             if attempt == 1:
                 raise ValueError("llm_invalid_json")
-            # fall through to retry
-
-    raise ValueError("llm_invalid_json")  # unreachable, satisfies type checker
+            messages[1]["content"] = RETRY_PREFIX + user_content

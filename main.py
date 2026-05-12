@@ -1,11 +1,16 @@
 from contextlib import asynccontextmanager
 
+import litellm
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes import backtest, papers, strategies
 from config import settings
 from core.stores import LRUStore
+
+# Prevent litellm from logging API keys or sending usage telemetry
+litellm.telemetry = False
+litellm.suppress_debug_info = True
 
 
 @asynccontextmanager
