@@ -38,6 +38,8 @@ async def run_backtest_route(request: Request, body: BacktestRunBody):
 
     try:
         portfolio = await run_backtest(spec, bars)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "backtest_runtime_error") from exc
 

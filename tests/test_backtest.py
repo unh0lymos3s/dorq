@@ -37,8 +37,9 @@ SMA_CROSSOVER_SPEC = StrategySpec(
 
 
 def _make_bars(n: int = 500) -> dict[str, pd.DataFrame]:
+    rng = np.random.default_rng(42)
     idx = pd.date_range("2015-01-01", periods=n, freq="D")
-    close = pd.Series(100.0 + np.cumsum(np.random.randn(n) * 0.5), index=idx)
+    close = pd.Series(100.0 + np.cumsum(rng.standard_normal(n) * 0.5), index=idx)
     df = pd.DataFrame({
         "open": close * 0.999,
         "high": close * 1.002,
@@ -66,14 +67,19 @@ async def test_extract_metrics_returns_expected_keys():
         assert key in metrics
 
 
-async def test_extract_metrics_values_are_float_or_none():
+async def test_extract_metrics_values_are_correct_types():
     from core.backtest.engine import run_backtest
     from core.backtest.metrics import extract_metrics
     bars = _make_bars()
     portfolio = await run_backtest(SMA_CROSSOVER_SPEC, bars)
     metrics = extract_metrics(portfolio)
-    for v in metrics.values():
-        assert v is None or isinstance(v, float)
+    for key, v in metrics.items():
+        if v is None:
+            continue
+        if key == "num_trades":
+            assert isinstance(v, int), f"{key} should be int, got {type(v)}"
+        else:
+            assert isinstance(v, float), f"{key} should be float, got {type(v)}"
 
 
 async def test_unsupported_indicator_raises():

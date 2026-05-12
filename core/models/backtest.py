@@ -11,5 +11,5 @@ class BacktestRequest(BaseModel):
 
 class BacktestResult(BaseModel):
     backtest_id: str
-    metrics: dict[str, float | None]
+    metrics: dict[str, float | int | None]
     charts: list[str]

@@ -32,18 +32,24 @@ def _fetch(
         start=str(start),
         end=str(end),
     )
-    bars = client.get_stock_bars(req)
-    df = bars.df
+    df = client.get_stock_bars(req).df
 
     result: dict[str, pd.DataFrame] = {}
     for symbol in assets:
-        try:
-            sym_df = df.loc[symbol].copy() if isinstance(df.index, pd.MultiIndex) else df
-        except KeyError:
-            raise ValueError(f"alpaca_fetch_error: {symbol} — no data returned for date range")
+        if isinstance(df.index, pd.MultiIndex):
+            if symbol not in df.index.get_level_values(0):
+                raise ValueError(f"alpaca_fetch_error: {symbol} — no data returned for date range")
+            sym_df = df.loc[symbol].copy()
+        else:
+            sym_df = df.copy()
+
         if sym_df.empty:
-            raise ValueError(f"alpaca_fetch_error: {symbol} — no data returned for date range")
-        sym_df.index = pd.to_datetime(sym_df.index)
+            raise ValueError(f"alpaca_fetch_error: {symbol} — empty response for date range")
+
+        # Ensure a plain DatetimeIndex (alpaca-py already provides one, but guard anyway)
+        if not isinstance(sym_df.index, pd.DatetimeIndex):
+            sym_df.index = pd.to_datetime(sym_df.index)
+
         result[symbol] = sym_df
 
     return result
