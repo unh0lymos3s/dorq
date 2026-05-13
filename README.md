@@ -8,22 +8,127 @@ PDF / URL → [docling] → Markdown → [LiteLLM] → StrategySpec → [vectorb
 
 ---
 
-## Quick start
+## Installation
 
-Requires Python 3.12 and [uv](https://docs.astral.sh/uv/).
+### Prerequisites
+
+- Python 3.12 (not 3.13+; required by vectorbt/llvmlite)
+- [uv](https://docs.astral.sh/uv/) — install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- Docker + Docker Compose (for local error monitoring via GlitchTip)
+
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/unh0lymos3s/dorq.git
+cd dorq
 uv sync --dev
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` as needed. The only required variable for monitoring is `DORQ_SENTRY_DSN` (pre-filled in the example). LLM API keys and Alpaca credentials are passed per-request — not stored in config.
+
+### 3. Start local monitoring (optional but recommended)
+
+```bash
+cd ~/glitchtip   # or wherever you cloned the GlitchTip compose file
+docker compose up -d
+```
+
+GlitchTip admin UI: **http://localhost:8010** — `admin@localhost` / `dorqadmin123`
+
+### 4. Run the server
+
+```bash
+cd dorq
+uv run uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+The API and frontend are available at **http://localhost:8000**.
+
+---
+
+## Development
+
+```bash
+# Run all tests
+uv run pytest
+
+# Run a single test file
+uv run pytest tests/test_parser.py -v
+
+# Integration test (requires Alpaca credentials)
+ALPACA_API_KEY=... ALPACA_SECRET_KEY=... uv run pytest tests/test_backtest.py -v
+
+# Hot-reload dev server
 uv run uvicorn main:app --reload
 ```
 
-The server starts on **http://localhost:8000**. Open that URL in a browser to use the frontend UI.
+---
 
-For the integration test (requires Alpaca credentials):
+## Deployment
+
+### Single-server (systemd)
+
+Create `/etc/systemd/system/dorq.service`:
+
+```ini
+[Unit]
+Description=dorq backtesting API
+After=network.target
+
+[Service]
+User=samosa
+WorkingDirectory=/home/samosa/dorq
+EnvironmentFile=/home/samosa/dorq/.env
+ExecStart=/home/samosa/dorq/.venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
 
 ```bash
-ALPACA_API_KEY=... ALPACA_SECRET_KEY=... uv run pytest tests/test_backtest.py -v
+sudo systemctl daemon-reload
+sudo systemctl enable --now dorq
+sudo systemctl status dorq
 ```
+
+### Behind a reverse proxy (nginx)
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    client_max_body_size 55M;  # allow up to 50 MB PDF uploads
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 120s;  # docling can take up to 2 min
+    }
+}
+```
+
+### Environment variables reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DORQ_DEBUG` | `false` | Enable FastAPI debug mode |
+| `DORQ_LOG_LEVEL` | `info` | Log verbosity |
+| `DORQ_CORS_ORIGINS` | `["*"]` | Allowed CORS origins (JSON array) |
+| `DORQ_SENTRY_DSN` | _(unset)_ | Sentry/GlitchTip DSN — monitoring disabled if absent |
+| `DORQ_SENTRY_ENVIRONMENT` | `development` | Environment tag in error reports |
+| `DORQ_SENTRY_TRACES_SAMPLE_RATE` | `0.2` | Fraction of requests traced (0–1) |
 
 ---
 
