@@ -15,6 +15,15 @@ from core.stores import LRUStore
 litellm.telemetry = False
 litellm.suppress_debug_info = True
 
+# Initialise Sentry before the app is constructed so integrations patch Starlette
+if settings.sentry_dsn:
+    from core.sentry import init as sentry_init
+    sentry_init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        traces_sample_rate=settings.sentry_traces_sample_rate,
+    )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

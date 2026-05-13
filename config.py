@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     log_level: Literal["debug", "info", "warning", "error", "critical"] = "info"
     cors_origins: list[str] = ["*"]
 
+    sentry_dsn: str | None = None
+    sentry_environment: str = "development"
+    sentry_traces_sample_rate: float = 0.2
+
     model_config = {"env_prefix": "DORQ_"}
 
 

@@ -1,5 +1,6 @@
 from typing import Literal
 
+import sentry_sdk
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel
 
@@ -19,6 +20,10 @@ class GenerateRequest(BaseModel):
 
 @router.post("/generate")
 async def generate_strategy_route(request: Request, body: GenerateRequest):
+    sentry_sdk.set_tag("paper.id", body.paper_id)
+    sentry_sdk.set_tag("llm.provider", body.provider)
+    sentry_sdk.set_tag("llm.model", body.model)
+
     entry = await request.app.state.papers.get(body.paper_id)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"paper {body.paper_id!r} not found")

@@ -1,5 +1,6 @@
 import uuid
 
+import sentry_sdk
 from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, SecretStr
 
@@ -21,6 +22,15 @@ class BacktestRunBody(BaseModel):
 @router.post("/run", response_model=BacktestResult)
 async def run_backtest_route(request: Request, body: BacktestRunBody):
     spec = body.strategy_spec
+    sentry_sdk.set_context("strategy", {
+        "assets": spec.assets,
+        "timeframe": spec.timeframe,
+        "date_range": [str(d) for d in spec.date_range],
+        "position_sizing": spec.position_sizing,
+    })
+    sentry_sdk.set_tag("backtest.timeframe", spec.timeframe)
+    sentry_sdk.set_tag("backtest.assets", ",".join(spec.assets))
+
     api_key = body.alpaca_api_key.get_secret_value()
     secret_key = body.alpaca_secret_key.get_secret_value()
 

@@ -3,6 +3,7 @@ import socket
 import uuid
 from urllib.parse import urlparse
 
+import sentry_sdk
 from fastapi import APIRouter, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, HttpUrl
 
@@ -54,7 +55,11 @@ async def _parse_and_store(
 
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_paper(request: Request, file: UploadFile):
+    sentry_sdk.set_tag("paper.source", "upload")
+    sentry_sdk.set_tag("paper.filename", file.filename)
+
     pdf_bytes = await file.read()
+    sentry_sdk.set_context("paper", {"filename": file.filename, "size_bytes": len(pdf_bytes)})
 
     try:
         markdown = await parse_pdf(pdf_bytes)
@@ -62,6 +67,7 @@ async def upload_paper(request: Request, file: UploadFile):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
     paper_id = str(uuid.uuid4())
+    sentry_sdk.set_tag("paper.id", paper_id)
     record = PaperRecord(paper_id=paper_id, filename=file.filename)
     return await _parse_and_store(request, paper_id, markdown, record)
 
@@ -69,6 +75,8 @@ async def upload_paper(request: Request, file: UploadFile):
 @router.post("/url", status_code=status.HTTP_201_CREATED)
 async def paper_from_url(request: Request, body: PaperURLBody):
     url = str(body.url)
+    sentry_sdk.set_tag("paper.source", "url")
+    sentry_sdk.set_context("paper", {"url": url})
     _check_ssrf(url)
 
     try:
@@ -77,5 +85,6 @@ async def paper_from_url(request: Request, body: PaperURLBody):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
     paper_id = str(uuid.uuid4())
+    sentry_sdk.set_tag("paper.id", paper_id)
     record = PaperRecord(paper_id=paper_id, source_url=url)
     return await _parse_and_store(request, paper_id, markdown, record)
