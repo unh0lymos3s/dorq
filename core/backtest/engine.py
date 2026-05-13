@@ -10,8 +10,7 @@ _CONDITION_RE = re.compile(
     r"^(?P<left>\w+)\s*(?P<op>>=|<=|>|<|==)\s*(?P<right>[\w.]+)$"
 )
 
-# Proper pandas offset aliases for vectorbt annualization
-_TIMEFRAME_FREQ = {"1D": "D", "1W": "W", "1M": "M"}
+_TIMEFRAME_FREQ = {"1D": "D", "1W": "W", "1M": "ME"}
 
 _AND_RE = re.compile(r"\bAND\b", re.IGNORECASE)
 
@@ -93,14 +92,45 @@ def _combine_conditions(conditions: list[str], signals: dict[str, pd.Series]) ->
     return result.fillna(False)
 
 
+def _vbt_kwargs(
+    close_df: pd.DataFrame,
+    entries_df: pd.DataFrame,
+    exits_df: pd.DataFrame,
+    position_sizing: str,
+    timeframe: str,
+    risk_params,
+) -> dict:
+    freq = _TIMEFRAME_FREQ.get(timeframe, "D")
+    n_assets = len(close_df.columns)
+    shared = position_sizing in ("equal_weight", "percent_equity")
+
+    if position_sizing == "equal_weight":
+        size, size_type = 1.0 / n_assets, "percent"
+    elif position_sizing == "percent_equity":
+        size, size_type = 0.95, "percent"
+    else:
+        size, size_type = 1.0, "amount"
+
+    kwargs: dict = dict(
+        close=close_df,
+        entries=entries_df,
+        exits=exits_df,
+        size=size,
+        size_type=size_type,
+        freq=freq,
+        group_by=shared,
+        cash_sharing=shared,
+    )
+    if risk_params.stop_loss_pct is not None:
+        kwargs["sl_stop"] = risk_params.stop_loss_pct / 100
+    if risk_params.take_profit_pct is not None:
+        kwargs["tp_stop"] = risk_params.take_profit_pct / 100
+    return kwargs
+
+
 def _run_backtest(spec: StrategySpec, bars: dict[str, pd.DataFrame]):
     import vectorbt as vbt
 
-    freq = _TIMEFRAME_FREQ.get(spec.timeframe, "D")
-    ps = spec.position_sizing
-    n_assets = len(spec.assets)
-
-    # Build vectorized 2D arrays — one column per asset
     closes: dict[str, pd.Series] = {}
     entries_map: dict[str, pd.Series] = {}
     exits_map: dict[str, pd.Series] = {}
@@ -116,32 +146,9 @@ def _run_backtest(spec: StrategySpec, bars: dict[str, pd.DataFrame]):
     entries_df = pd.concat(entries_map, axis=1).fillna(False)
     exits_df = pd.concat(exits_map, axis=1).fillna(False)
 
-    if ps == "equal_weight":
-        size = 1.0 / n_assets
-        size_type = "percent"
-    elif ps == "percent_equity":
-        size = 0.95
-        size_type = "percent"
-    else:  # fixed — 1 share per signal
-        size = 1.0
-        size_type = "amount"
-
-    kwargs: dict = dict(
-        close=close_df,
-        entries=entries_df,
-        exits=exits_df,
-        size=size,
-        size_type=size_type,
-        freq=freq,
-        group_by=True,
-        cash_sharing=(ps in ("equal_weight", "percent_equity")),
+    return vbt.Portfolio.from_signals(
+        **_vbt_kwargs(close_df, entries_df, exits_df, spec.position_sizing, spec.timeframe, spec.risk_params)
     )
-    if spec.risk_params.stop_loss_pct is not None:
-        kwargs["sl_stop"] = spec.risk_params.stop_loss_pct / 100
-    if spec.risk_params.take_profit_pct is not None:
-        kwargs["tp_stop"] = spec.risk_params.take_profit_pct / 100
-
-    return vbt.Portfolio.from_signals(**kwargs)
 
 
 async def run_backtest(spec: StrategySpec, bars: dict[str, pd.DataFrame]):
@@ -159,43 +166,23 @@ def _run_backtest_from_code(
 
     entries_df, exits_df = exec_strategy(strategy_code, bars)
 
-    entries_df = entries_df[portfolio_config.assets]
-    exits_df = exits_df[portfolio_config.assets]
+    missing = [s for s in portfolio_config.assets if s not in entries_df.columns]
+    if missing:
+        raise ValueError(f"strategy() did not produce columns for assets: {missing}")
 
-    freq = _TIMEFRAME_FREQ.get(portfolio_config.timeframe, "D")
-    ps = portfolio_config.position_sizing
-    n_assets = len(portfolio_config.assets)
+    entries_df = entries_df.reindex(columns=portfolio_config.assets, fill_value=False)
+    exits_df = exits_df.reindex(columns=portfolio_config.assets, fill_value=False)
 
     close_df = pd.concat(
         {s: bars[s]["close"] for s in portfolio_config.assets}, axis=1
     ).ffill()
 
-    if ps == "equal_weight":
-        size = 1.0 / n_assets
-        size_type = "percent"
-    elif ps == "percent_equity":
-        size = 0.95
-        size_type = "percent"
-    else:
-        size = 1.0
-        size_type = "amount"
-
-    kwargs: dict = dict(
-        close=close_df,
-        entries=entries_df,
-        exits=exits_df,
-        size=size,
-        size_type=size_type,
-        freq=freq,
-        group_by=True,
-        cash_sharing=(ps in ("equal_weight", "percent_equity")),
+    return vbt.Portfolio.from_signals(
+        **_vbt_kwargs(
+            close_df, entries_df, exits_df,
+            portfolio_config.position_sizing, portfolio_config.timeframe, portfolio_config.risk_params,
+        )
     )
-    if portfolio_config.risk_params.stop_loss_pct is not None:
-        kwargs["sl_stop"] = portfolio_config.risk_params.stop_loss_pct / 100
-    if portfolio_config.risk_params.take_profit_pct is not None:
-        kwargs["tp_stop"] = portfolio_config.risk_params.take_profit_pct / 100
-
-    return vbt.Portfolio.from_signals(**kwargs)
 
 
 async def run_backtest_from_code(

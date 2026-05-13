@@ -23,12 +23,12 @@ Available in the execution namespace — DO NOT write any import statements:
   np          (numpy)
   pandas_ta   (use via df.ta accessor, e.g. df.ta.ema(length=20))
 
-Supported df.ta methods (and their key params):
+Supported df.ta methods (key params):
   df.ta.ema(length=N)            EMA
   df.ta.sma(length=N)            SMA
-  df.ta.rsi(length=N)            RSI (0–100)
-  df.ta.macd(fast, slow, signal) returns DataFrame; use .iloc[:,0] for MACD line, .iloc[:,1] for signal
-  df.ta.bbands(length=N)         Bollinger Bands; .iloc[:,0]=lower, .iloc[:,2]=upper
+  df.ta.rsi(length=14)           RSI (0-100)
+  df.ta.macd(fast, slow, signal) returns DataFrame; access by column name e.g. macd["MACD_12_26_9"]
+  df.ta.bbands(length=N)         Bollinger Bands; access by name e.g. bb["BBL_20_2.0"], bb["BBU_20_2.0"]
   df.ta.atr(length=N)            ATR
   df.ta.stoch()                  Stochastic
   df.ta.obv()                    On-Balance Volume
@@ -50,8 +50,8 @@ Example — EMA crossover with OR exit, RSI filter, and volume confirmation:
           # Exit: EMA20 crosses below EMA50 OR RSI overbought
           cross_dn = (ema20 < ema50) & (ema20.shift(1) >= ema50.shift(1))
           exits[symbol] = cross_dn | (rsi > 80)
-      entries_df = pd.DataFrame(entries).fillna(False)
-      exits_df   = pd.DataFrame(exits).fillna(False)
+      entries_df = pd.DataFrame(entries).fillna(False).astype(bool)
+      exits_df   = pd.DataFrame(exits).fillna(False).astype(bool)
       return entries_df, exits_df
 
 If the paper cannot be mapped to a quantifiable strategy, output:

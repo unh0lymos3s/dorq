@@ -1,7 +1,9 @@
+import re
+
+_FENCE_RE = re.compile(r"^```[^\n]*\n(.*?)\n```", re.DOTALL)
+
+
 def _strip_fences(text: str) -> str:
     s = text.strip()
-    if s.startswith("```"):
-        s = s.split("\n", 1)[1] if "\n" in s else s
-        if s.endswith("```"):
-            s = s[:-3].rstrip()
-    return s
+    m = _FENCE_RE.match(s)
+    return m.group(1).strip() if m else s

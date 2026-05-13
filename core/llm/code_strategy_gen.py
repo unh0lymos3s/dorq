@@ -14,11 +14,15 @@ def _parse_code_response(content: str) -> tuple[str, PortfolioConfig]:
     if not isinstance(data, dict):
         raise TypeError("LLM returned non-object JSON")
     if "error" in data:
+        # LLM explicitly declined — propagate as ValueError, do not retry
         raise ValueError(data["error"])
     strategy_code = data.get("strategy_code")
     if not isinstance(strategy_code, str) or not strategy_code.strip():
-        raise ValueError("missing or empty strategy_code field")
-    portfolio_config = PortfolioConfig.model_validate(data["portfolio_config"])
+        raise TypeError("missing or empty strategy_code field")
+    pc = data.get("portfolio_config")
+    if pc is None:
+        raise TypeError("missing portfolio_config field")
+    portfolio_config = PortfolioConfig.model_validate(pc)
     return strategy_code, portfolio_config
 
 
@@ -41,11 +45,14 @@ async def generate_code_strategy(
         {"role": "user", "content": user_content},
     ]
 
+    last_exc: Exception = ValueError("llm_invalid_json")
     for attempt in range(2):
         content = await complete(messages, **kwargs)
         try:
             return _parse_code_response(content)
-        except (json.JSONDecodeError, ValidationError, TypeError, KeyError):
-            if attempt == 1:
-                raise ValueError("llm_invalid_json")
-            messages[1]["content"] = CODE_RETRY_PREFIX + user_content
+        except ValueError:
+            raise  # LLM declined — do not retry
+        except (json.JSONDecodeError, ValidationError, TypeError, KeyError) as exc:
+            last_exc = exc
+        messages[1]["content"] = CODE_RETRY_PREFIX + user_content
+    raise ValueError("llm_invalid_json") from last_exc

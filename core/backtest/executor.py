@@ -4,13 +4,27 @@ import pandas_ta  # noqa: F401
 
 from core.backtest.validator import validate_strategy_code
 
-_NAMESPACE = {"pd": pd, "np": np, "pandas_ta": pandas_ta}
+_SAFE_BUILTINS: dict = {
+    "abs": abs, "all": all, "any": any, "bool": bool, "dict": dict,
+    "enumerate": enumerate, "float": float, "int": int, "len": len,
+    "list": list, "max": max, "min": min, "range": range, "round": round,
+    "set": set, "str": str, "sum": sum, "tuple": tuple, "zip": zip,
+    "isinstance": isinstance, "True": True, "False": False, "None": None,
+    "print": print,
+}
+
+_NAMESPACE_BASE = {
+    "pd": pd,
+    "np": np,
+    "pandas_ta": pandas_ta,
+    "__builtins__": _SAFE_BUILTINS,
+}
 
 
 def exec_strategy(source: str, bars: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     validate_strategy_code(source)
 
-    namespace = dict(_NAMESPACE)
+    namespace = dict(_NAMESPACE_BASE)
     try:
         exec(source, namespace)  # noqa: S102
     except Exception as exc:

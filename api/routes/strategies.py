@@ -35,13 +35,8 @@ async def generate_strategy_route(request: Request, body: GenerateRequest):
         spec = await generate_strategy(parsed, body.provider, body.model, body.api_key)
     except ValueError as exc:
         msg = str(exc)
-        status_code = (
-            status.HTTP_422_UNPROCESSABLE_ENTITY
-            if msg == "llm_invalid_json"
-            else status.HTTP_422_UNPROCESSABLE_ENTITY
-        )
         detail = "LLM failed to produce valid JSON after retry" if msg == "llm_invalid_json" else msg
-        raise HTTPException(status_code, detail) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail) from exc
 
     strategy_id = body.paper_id
     await request.app.state.strategies.put(strategy_id, spec)

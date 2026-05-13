@@ -95,3 +95,28 @@ def test_missing_strategy_function():
 def test_syntax_error():
     with pytest.raises(ValueError, match="syntax"):
         validate_strategy_code("def strategy(bars): return (")
+
+
+def test_blocks_indirect_reference():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code("def strategy(bars):\n    e = eval\n    return e('1'), e('2')")
+
+
+def test_blocks_eval_in_default_arg():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code("def strategy(bars, _=open('/etc/passwd')): return bars, bars")
+
+
+def test_blocks_eval_as_decorator():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code("@open\ndef strategy(bars): return bars, bars")
+
+
+def test_blocks_ns_attribute_assignment():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code("def strategy(bars):\n    pd.options.mode.chained_assignment = None")
+
+
+def test_blocks_async_strategy():
+    with pytest.raises(ValueError, match="async"):
+        validate_strategy_code("async def strategy(bars): return bars, bars")

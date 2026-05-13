@@ -1,7 +1,11 @@
 from datetime import date
+from typing import Literal
+
 from pydantic import BaseModel, model_validator
 
 IndicatorParam = float | int | str | bool
+Timeframe = Literal["1D", "1W", "1M"]
+PositionSizing = Literal["equal_weight", "fixed", "percent_equity"]
 
 
 class IndicatorDef(BaseModel):
@@ -14,36 +18,27 @@ class RiskParams(BaseModel):
     take_profit_pct: float | None = None
 
 
-class StrategySpec(BaseModel):
+class _PortfolioBase(BaseModel):
+    assets: list[str]
+    timeframe: Timeframe
+    date_range: tuple[date, date]
+    position_sizing: PositionSizing
+    risk_params: RiskParams
+
+    @model_validator(mode="after")
+    def _check_date_range(self) -> "_PortfolioBase":
+        if self.date_range[0] >= self.date_range[1]:
+            raise ValueError("date_range start must be before end")
+        return self
+
+
+class PortfolioConfig(_PortfolioBase):
+    pass
+
+
+class StrategySpec(_PortfolioBase):
     title: str
     summary: str
-    assets: list[str]
-    timeframe: str
-    date_range: tuple[date, date]
     indicators: list[IndicatorDef]
     entry_conditions: list[str]
     exit_conditions: list[str]
-    position_sizing: str
-    risk_params: RiskParams
-
-    @model_validator(mode="after")
-    def _check_date_range(self) -> "StrategySpec":
-        start, end = self.date_range
-        if start >= end:
-            raise ValueError("date_range start must be before end")
-        return self
-
-
-class PortfolioConfig(BaseModel):
-    assets: list[str]
-    timeframe: str
-    date_range: tuple[date, date]
-    position_sizing: str
-    risk_params: RiskParams
-
-    @model_validator(mode="after")
-    def _check_date_range(self) -> "PortfolioConfig":
-        start, end = self.date_range
-        if start >= end:
-            raise ValueError("date_range start must be before end")
-        return self
