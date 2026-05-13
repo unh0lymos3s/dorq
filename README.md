@@ -144,6 +144,32 @@ All API responses and errors are JSON. Error details are plain strings — no st
 
 ---
 
+## Local error monitoring
+
+dorq ships with [Sentry SDK](https://docs.sentry.io/platforms/python/) integration. For local development, [GlitchTip](https://glitchtip.com/) (a lightweight Sentry-compatible server) runs via Docker Compose.
+
+### Start GlitchTip
+
+```bash
+cd ~/glitchtip
+docker compose up -d
+```
+
+Admin UI at **http://localhost:8010** — `admin@localhost` / `dorqadmin123`.
+
+### Point dorq at it
+
+Copy `.env.example` to `.env` (or just export the var):
+
+```bash
+export DORQ_SENTRY_DSN=http://ac025ee807fd4d73a13b38fb9e5ed7c1@localhost:8010/1
+uv run uvicorn main:app --reload
+```
+
+Any unhandled exception, logged error (`logging.error(...)`), or Sentry-instrumented event will appear in the GlitchTip **Issues** feed within a few seconds.
+
+---
+
 ## Stack
 
 | Layer | Library |
@@ -155,6 +181,7 @@ All API responses and errors are JSON. Error details are plain strings — no st
 | Market data | alpaca-py |
 | Backtesting | vectorbt + pandas-ta |
 | Charts | Plotly + kaleido |
+| Monitoring | sentry-sdk + GlitchTip (local) |
 | Frontend | Vanilla HTML / CSS / JS (no build step) |
 
 ---
