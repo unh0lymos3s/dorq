@@ -4,7 +4,7 @@ import re
 import pandas as pd
 import pandas_ta  # noqa: F401 — registers df.ta accessor
 
-from core.models.strategy import StrategySpec
+from core.models.strategy import PortfolioConfig, StrategySpec
 
 _CONDITION_RE = re.compile(
     r"^(?P<left>\w+)\s*(?P<op>>=|<=|>|<|==)\s*(?P<right>[\w.]+)$"
@@ -147,3 +147,63 @@ def _run_backtest(spec: StrategySpec, bars: dict[str, pd.DataFrame]):
 async def run_backtest(spec: StrategySpec, bars: dict[str, pd.DataFrame]):
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _run_backtest, spec, bars)
+
+
+def _run_backtest_from_code(
+    portfolio_config: PortfolioConfig,
+    strategy_code: str,
+    bars: dict[str, pd.DataFrame],
+):
+    import vectorbt as vbt
+    from core.backtest.executor import exec_strategy
+
+    entries_df, exits_df = exec_strategy(strategy_code, bars)
+
+    entries_df = entries_df[portfolio_config.assets]
+    exits_df = exits_df[portfolio_config.assets]
+
+    freq = _TIMEFRAME_FREQ.get(portfolio_config.timeframe, "D")
+    ps = portfolio_config.position_sizing
+    n_assets = len(portfolio_config.assets)
+
+    close_df = pd.concat(
+        {s: bars[s]["close"] for s in portfolio_config.assets}, axis=1
+    ).ffill()
+
+    if ps == "equal_weight":
+        size = 1.0 / n_assets
+        size_type = "percent"
+    elif ps == "percent_equity":
+        size = 0.95
+        size_type = "percent"
+    else:
+        size = 1.0
+        size_type = "amount"
+
+    kwargs: dict = dict(
+        close=close_df,
+        entries=entries_df,
+        exits=exits_df,
+        size=size,
+        size_type=size_type,
+        freq=freq,
+        group_by=True,
+        cash_sharing=(ps in ("equal_weight", "percent_equity")),
+    )
+    if portfolio_config.risk_params.stop_loss_pct is not None:
+        kwargs["sl_stop"] = portfolio_config.risk_params.stop_loss_pct / 100
+    if portfolio_config.risk_params.take_profit_pct is not None:
+        kwargs["tp_stop"] = portfolio_config.risk_params.take_profit_pct / 100
+
+    return vbt.Portfolio.from_signals(**kwargs)
+
+
+async def run_backtest_from_code(
+    portfolio_config: PortfolioConfig,
+    strategy_code: str,
+    bars: dict[str, pd.DataFrame],
+):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, _run_backtest_from_code, portfolio_config, strategy_code, bars
+    )

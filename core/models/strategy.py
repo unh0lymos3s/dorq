@@ -32,3 +32,18 @@ class StrategySpec(BaseModel):
         if start >= end:
             raise ValueError("date_range start must be before end")
         return self
+
+
+class PortfolioConfig(BaseModel):
+    assets: list[str]
+    timeframe: str
+    date_range: tuple[date, date]
+    position_sizing: str
+    risk_params: RiskParams
+
+    @model_validator(mode="after")
+    def _check_date_range(self) -> "PortfolioConfig":
+        start, end = self.date_range
+        if start >= end:
+            raise ValueError("date_range start must be before end")
+        return self
