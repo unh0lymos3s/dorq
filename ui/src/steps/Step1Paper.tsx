@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import type React from 'react'
 import type { PaperResult } from '../types'
+import { friendlyError } from '../apiError'
 
 interface Props {
   onDone: (paperId: string) => void
@@ -293,10 +294,7 @@ export default function Step1Paper({ onDone, done }: Props) {
           body: JSON.stringify({ url: trimmed }),
         })
       }
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || `HTTP ${res.status}`)
-      }
+      if (!res.ok) throw await friendlyError(res)
       const data: PaperResult = await res.json()
       setResult(data)
       onDone(data.paper_id)

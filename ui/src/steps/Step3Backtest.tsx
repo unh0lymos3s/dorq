@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type React from 'react'
 import type { StrategySpec, PortfolioConfig, BacktestResult } from '../types'
+import { friendlyError } from '../apiError'
 
 interface Props {
   mode: 'spec' | 'code'
@@ -157,10 +158,7 @@ export default function Step3Backtest({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || `HTTP ${res.status}`)
-      }
+      if (!res.ok) throw await friendlyError(res)
       const data: BacktestResult = await res.json()
       setResult(data)
       onDone(data)

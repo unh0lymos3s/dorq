@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type React from 'react'
 import type { StrategySpec, PortfolioConfig, CodeStrategyResult } from '../types'
+import { friendlyError } from '../apiError'
 
 interface Props {
   paperId: string | null
@@ -227,10 +228,7 @@ export default function Step2Strategy({ paperId, onDone, done, active }: Props) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ paper_id: paperId, provider, model: m, api_key: k }),
       })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text || `HTTP ${res.status}`)
-      }
+      if (!res.ok) throw await friendlyError(res)
       if (tab === 'spec') {
         const data: StrategySpec = await res.json()
         setSpecResult(data)
