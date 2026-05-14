@@ -66,9 +66,16 @@ async def healthz():
 
 
 _FRONTEND = Path(__file__).parent / "frontend"
-app.mount("/static", StaticFiles(directory=_FRONTEND), name="static")
+
+# Mount /assets for Vite's hashed JS/CSS bundles (must come before the catch-all)
+if (_FRONTEND / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=_FRONTEND / "assets"), name="assets")
 
 
-@app.get("/")
-async def index():
-    return FileResponse(_FRONTEND / "index.html")
+# SPA fallback: serve index.html for all unmatched routes (client-side routing)
+@app.get("/{full_path:path}", include_in_schema=False)
+async def spa_fallback(full_path: str):
+    index = _FRONTEND / "index.html"
+    if index.is_file():
+        return FileResponse(index)
+    return {"status": "frontend not built"}
