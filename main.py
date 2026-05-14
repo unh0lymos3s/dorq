@@ -1,3 +1,5 @@
+import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,26 +13,32 @@ from api.routes import backtest, papers, strategies
 from config import settings
 from core.stores import LRUStore
 
-# Prevent litellm from logging API keys or sending usage telemetry
-litellm.telemetry = False
-litellm.suppress_debug_info = True
+_LOG_LEVEL = settings.log_level.upper()
 
-# Initialise Sentry before the app is constructed so integrations patch Starlette
-if settings.sentry_dsn:
-    from core.sentry import init as sentry_init
-    sentry_init(
-        dsn=settings.sentry_dsn,
-        environment=settings.sentry_environment,
-        traces_sample_rate=settings.sentry_traces_sample_rate,
-    )
+logging.basicConfig(
+    level=_LOG_LEVEL,
+    format="%(asctime)s %(levelname)-8s %(name)s  %(message)s",
+    datefmt="%Y-%m-%dT%H:%M:%S",
+    force=True,  # override uvicorn's pre-installed root handler
+)
+for _name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+    _lg = logging.getLogger(_name)
+    _lg.handlers.clear()
+    _lg.propagate = True
+
+litellm.telemetry = False
+litellm.suppress_debug_info = settings.log_level != "debug"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Warm up docling weights before the first request
-    from core.document.parser import warmup
+    log = logging.getLogger("dorq.startup")
+    log.info("startup.docling_warmup")
     import asyncio
+    from core.document.parser import warmup
+    t0 = time.perf_counter()
     await asyncio.get_running_loop().run_in_executor(None, warmup)
+    log.info("startup.docling_ready elapsed_ms=%d", int((time.perf_counter() - t0) * 1000))
 
     app.state.papers = LRUStore(maxsize=128)
     app.state.strategies = LRUStore(maxsize=128)

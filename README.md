@@ -14,7 +14,7 @@ PDF / URL → [docling] → Markdown → [LiteLLM] → StrategySpec → [vectorb
 
 - Python 3.12 (not 3.13+; required by vectorbt/llvmlite)
 - [uv](https://docs.astral.sh/uv/) — install with `curl -LsSf https://astral.sh/uv/install.sh | sh`
-- Docker + Docker Compose (for local error monitoring via GlitchTip)
+- Docker + Docker Compose (optional, for local infrastructure)
 
 ### 1. Clone and install
 
@@ -24,24 +24,15 @@ cd dorq
 uv sync --dev
 ```
 
-### 2. Configure environment
+### 2. Configure environment (optional)
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` as needed. The only required variable for monitoring is `DORQ_SENTRY_DSN` (pre-filled in the example). LLM API keys and Alpaca credentials are passed per-request — not stored in config.
+LLM API keys and Alpaca credentials are passed per-request — not stored in config. The only setting you may want to change is `DORQ_LOG_LEVEL` (default: `info`).
 
-### 3. Start local monitoring (optional but recommended)
-
-```bash
-cd ~/glitchtip   # or wherever you cloned the GlitchTip compose file
-docker compose up -d
-```
-
-GlitchTip admin UI: **http://localhost:8010** — `admin@localhost` / `dorqadmin123`
-
-### 4. Run the server
+### 3. Run the server
 
 ```bash
 cd dorq
@@ -124,11 +115,8 @@ server {
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DORQ_DEBUG` | `false` | Enable FastAPI debug mode |
-| `DORQ_LOG_LEVEL` | `info` | Log verbosity |
+| `DORQ_LOG_LEVEL` | `info` | Log verbosity (`debug`\|`info`\|`warning`\|`error`\|`critical`) |
 | `DORQ_CORS_ORIGINS` | `["*"]` | Allowed CORS origins (JSON array) |
-| `DORQ_SENTRY_DSN` | _(unset)_ | Sentry/GlitchTip DSN — monitoring disabled if absent |
-| `DORQ_SENTRY_ENVIRONMENT` | `development` | Environment tag in error reports |
-| `DORQ_SENTRY_TRACES_SAMPLE_RATE` | `0.2` | Fraction of requests traced (0–1) |
 
 ---
 
@@ -249,32 +237,6 @@ All API responses and errors are JSON. Error details are plain strings — no st
 
 ---
 
-## Local error monitoring
-
-dorq ships with [Sentry SDK](https://docs.sentry.io/platforms/python/) integration. For local development, [GlitchTip](https://glitchtip.com/) (a lightweight Sentry-compatible server) runs via Docker Compose.
-
-### Start GlitchTip
-
-```bash
-cd ~/glitchtip
-docker compose up -d
-```
-
-Admin UI at **http://localhost:8010** — `admin@localhost` / `dorqadmin123`.
-
-### Point dorq at it
-
-Copy `.env.example` to `.env` (or just export the var):
-
-```bash
-export DORQ_SENTRY_DSN=http://ac025ee807fd4d73a13b38fb9e5ed7c1@localhost:8010/1
-uv run uvicorn main:app --reload
-```
-
-Any unhandled exception, logged error (`logging.error(...)`), or Sentry-instrumented event will appear in the GlitchTip **Issues** feed within a few seconds.
-
----
-
 ## Stack
 
 | Layer | Library |
@@ -286,7 +248,7 @@ Any unhandled exception, logged error (`logging.error(...)`), or Sentry-instrume
 | Market data | alpaca-py |
 | Backtesting | vectorbt + pandas-ta |
 | Charts | Plotly + kaleido |
-| Monitoring | sentry-sdk + GlitchTip (local) |
+| Logging | Python stdlib `logging` |
 | Frontend | Vanilla HTML / CSS / JS (no build step) |
 
 ---
