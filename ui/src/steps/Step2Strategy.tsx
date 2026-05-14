@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type React from 'react'
 import type { StrategySpec, PortfolioConfig, CodeStrategyResult } from '../types'
 
@@ -12,47 +12,146 @@ interface Props {
   ) => void
   done: boolean
   active: boolean
+  animKey?: number
 }
 
 const PROVIDERS = ['openai', 'anthropic', 'groq', 'gemini', 'azure', 'bedrock', 'ollama'] as const
 
-const CIRCLE: React.CSSProperties = {
-  width: 24,
-  height: 24,
-  borderRadius: '50%',
+// ─── Module-scope style constants ──────────────────────────────────────────
+const HEADER_BASE: React.CSSProperties = {
+  height: 52,
   display: 'flex',
   alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: 11,
-  fontWeight: 700,
-  flexShrink: 0,
-  background: 'var(--text)',
-  color: 'var(--bg)',
-  border: 'none',
+  gap: 16,
+  padding: '0 20px',
+}
+const HEADER_ACTIVE: React.CSSProperties = { ...HEADER_BASE, background: 'var(--bg)' }
+const HEADER_IDLE: React.CSSProperties = { ...HEADER_BASE, background: 'var(--surface)' }
+
+const STEP_NUM_DONE: React.CSSProperties = {
+  fontSize: 20, fontWeight: 800, fontFamily: 'var(--font)', color: 'var(--muted)',
+  lineHeight: 1, minWidth: 32, textDecoration: 'line-through', textDecorationColor: 'var(--border)',
+}
+const STEP_NUM_ACTIVE: React.CSSProperties = {
+  fontSize: 28, fontWeight: 800, fontFamily: 'var(--font)', color: 'var(--text)',
+  lineHeight: 1, minWidth: 32,
+}
+const STEP_NUM_IDLE: React.CSSProperties = {
+  fontSize: 28, fontWeight: 800, fontFamily: 'var(--font)', color: 'var(--subtle)',
+  lineHeight: 1, minWidth: 32,
 }
 
-const CIRCLE_IDLE: React.CSSProperties = {
-  ...CIRCLE,
-  background: 'transparent',
-  color: 'var(--muted)',
-  border: '1.5px solid var(--border)',
+const TITLE_BASE: React.CSSProperties = {
+  fontSize: 13, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', flex: 1,
+}
+const TITLE_ACTIVE: React.CSSProperties = { ...TITLE_BASE, color: 'var(--text)' }
+const TITLE_IDLE: React.CSSProperties = { ...TITLE_BASE, color: 'var(--muted)' }
+
+const INPUT_STYLE: React.CSSProperties = {
+  height: 42, border: '1px solid var(--border)', borderRadius: 0, background: 'var(--bg)',
+  color: 'var(--text)', padding: '0 12px', fontSize: 13, fontFamily: 'var(--font)',
+  width: '100%', boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s',
+}
+const SELECT_STYLE: React.CSSProperties = {
+  ...INPUT_STYLE,
+  appearance: 'none',
+  WebkitAppearance: 'none',
+  paddingRight: 32,
+  cursor: 'pointer',
 }
 
-function sharedInput(): React.CSSProperties {
-  return {
-    width: '100%',
-    height: 38,
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    padding: '0 10px',
-    fontSize: 13,
-    fontFamily: 'var(--font)',
-    boxSizing: 'border-box',
-    outline: 'none',
-  }
+const LABEL_STYLE: React.CSSProperties = {
+  fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase',
+  color: 'var(--muted)', marginBottom: 6, marginTop: 16, display: 'block',
 }
+
+const BODY_STYLE: React.CSSProperties = {
+  padding: '20px 20px 24px',
+  borderTop: '1px solid var(--border)',
+  animation: 'slideDown 0.22s ease',
+}
+
+const TAB_WRAP_STYLE: React.CSSProperties = {
+  display: 'inline-flex',
+  border: '1px solid var(--border)',
+  marginBottom: 18,
+}
+const TAB_BTN_BASE: React.CSSProperties = {
+  padding: '8px 16px', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em',
+  textTransform: 'uppercase', border: 'none', cursor: 'pointer', fontFamily: 'var(--font)',
+  transition: 'background 0.15s, color 0.15s',
+}
+const TAB_BTN_ON: React.CSSProperties = { ...TAB_BTN_BASE, background: 'var(--text)', color: 'var(--bg)' }
+const TAB_BTN_OFF: React.CSSProperties = { ...TAB_BTN_BASE, background: 'transparent', color: 'var(--muted)' }
+
+const SELECT_WRAP_STYLE: React.CSSProperties = { position: 'relative' }
+const SELECT_CARET_STYLE: React.CSSProperties = {
+  position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+  pointerEvents: 'none', color: 'var(--muted)', fontSize: 11, fontFamily: 'var(--mono)',
+}
+
+const BADGE_STYLE: React.CSSProperties = {
+  fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--muted)', maxWidth: 220,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+}
+
+const LOADING_SPAN: React.CSSProperties = { fontFamily: 'var(--mono)', fontSize: 13, letterSpacing: 3 }
+const DOT_A: React.CSSProperties = { animation: 'pulse 1.2s ease infinite', animationDelay: '0ms', display: 'inline-block' }
+const DOT_B: React.CSSProperties = { animation: 'pulse 1.2s ease infinite', animationDelay: '200ms', display: 'inline-block' }
+const DOT_C: React.CSSProperties = { animation: 'pulse 1.2s ease infinite', animationDelay: '400ms', display: 'inline-block' }
+
+const ERROR_STYLE: React.CSSProperties = {
+  marginTop: 10, fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--error)',
+}
+
+const SPEC_WRAP_STYLE: React.CSSProperties = {
+  borderTop: '1px solid var(--border)', background: 'var(--surface)',
+}
+const SPEC_HEAD_STYLE: React.CSSProperties = { padding: '16px 20px 0' }
+const SPEC_TITLE_STYLE: React.CSSProperties = {
+  fontSize: 13, fontWeight: 600, fontFamily: 'var(--font)', color: 'var(--text)', marginBottom: 4,
+}
+const SPEC_SUMMARY_STYLE: React.CSSProperties = {
+  fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', lineHeight: 1.6, marginBottom: 12,
+}
+const SPEC_DATA_STYLE: React.CSSProperties = {
+  borderTop: '1px solid var(--border)', padding: '12px 20px',
+  fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)', lineHeight: 2,
+}
+const SPEC_TOGGLE_BTN_STYLE: React.CSSProperties = {
+  background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+  fontSize: 10, fontFamily: 'var(--mono)', fontWeight: 700, letterSpacing: '0.06em',
+  textTransform: 'uppercase', padding: 0,
+}
+
+const CODE_RESULT_WRAP_STYLE: React.CSSProperties = {
+  borderTop: '1px solid var(--border)', padding: '16px 20px', background: 'var(--surface)',
+  fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--muted)', lineHeight: 2,
+}
+const CODE_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
+  color: 'var(--muted)', marginBottom: 8,
+}
+
+const ROW_STYLE: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', gap: 16 }
+const ROW_VALUE_STYLE: React.CSSProperties = {
+  color: 'var(--text)', fontWeight: 700, textAlign: 'right', overflow: 'hidden',
+  textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '60%',
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={ROW_STYLE}>
+      <span>{label}</span>
+      <span style={ROW_VALUE_STYLE}>{value}</span>
+    </div>
+  )
+}
+
+// Provider options precomputed once for the lifetime of the bundle.
+const PROVIDER_OPTIONS = PROVIDERS.map(p => (
+  <option key={p} value={p}>{p}</option>
+))
 
 export default function Step2Strategy({ paperId, onDone, done, active }: Props) {
   const [tab, setTab] = useState<'spec' | 'code'>('spec')
@@ -67,90 +166,58 @@ export default function Step2Strategy({ paperId, onDone, done, active }: Props) 
 
   const isDone = done || specResult !== null || codeResult !== null
   const isActive = active && !isDone
+  const isIdle = !active && !isDone
 
-  const cardStyle: React.CSSProperties = {
-    border: isActive
-      ? '2px solid var(--text)'
-      : '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
+  // Card shell needs `isActive`/`isIdle`; memoize so the prop is stable when
+  // unrelated state (model/apiKey typing) changes.
+  const cardStyle = useMemo<React.CSSProperties>(() => ({
+    border: isActive ? '2px solid var(--text)' : '1px solid var(--border)',
+    marginTop: -1,
+    position: isActive ? 'relative' : undefined,
+    zIndex: isActive ? 1 : undefined,
     overflow: 'hidden',
-    opacity: !active && !isDone ? 0.45 : 1,
-  }
+    opacity: isIdle ? 0.4 : 1,
+  }), [isActive, isIdle])
 
-  const headerStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '12px 16px',
-    background: 'var(--surface)',
-  }
-
-  const cirStyle = isDone || isActive ? CIRCLE : CIRCLE_IDLE
-
-  const tabBtnStyle = (t: boolean): React.CSSProperties => ({
-    background: 'none',
-    border: 'none',
-    borderBottom: t ? '2px solid var(--text)' : '2px solid transparent',
-    padding: '6px 2px',
-    marginRight: 16,
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: t ? 600 : 400,
-    color: t ? 'var(--text)' : 'var(--muted)',
-    fontFamily: 'var(--font)',
-  })
-
-  const generateBtn: React.CSSProperties = {
+  const generateBtnStyle = useMemo<React.CSSProperties>(() => ({
     width: '100%',
-    height: 40,
+    height: 44,
     background: 'var(--text)',
     color: 'var(--bg)',
     border: 'none',
-    borderRadius: 'var(--radius)',
-    fontSize: 14,
-    fontWeight: 600,
+    fontFamily: 'var(--font)',
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: '0.1em',
+    textTransform: 'uppercase',
     cursor: loading ? 'not-allowed' : 'pointer',
-    opacity: loading ? 0.6 : 1,
-    fontFamily: 'var(--font)',
-    marginTop: 12,
-  }
+    marginTop: 20,
+    transition: 'opacity 0.15s',
+    opacity: loading ? 0.5 : 1,
+  }), [loading])
 
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: 12,
-    color: 'var(--muted)',
-    marginBottom: 4,
-    marginTop: 10,
-    fontWeight: 500,
-  }
+  const onProviderChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    setProvider(e.target.value)
+  }, [])
 
-  const infoBlock: React.CSSProperties = {
-    marginTop: 12,
-    padding: '10px 12px',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    fontSize: 12,
-    color: 'var(--muted)',
-    background: 'var(--subtle)',
-    lineHeight: 1.7,
-  }
+  const onModelChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setModel(e.target.value)
+    setError(null)
+  }, [])
 
-  const collapseBtn: React.CSSProperties = {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    color: 'var(--muted)',
-    fontSize: 12,
-    fontFamily: 'var(--font)',
-    padding: 0,
-    marginLeft: 'auto',
-  }
+  const onApiKeyChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setApiKey(e.target.value)
+    setError(null)
+  }, [])
 
-  async function handleGenerate() {
+  const toggleSpecOpen = useCallback(() => setSpecOpen(o => !o), [])
+
+  const handleGenerate = useCallback(async () => {
     if (!paperId) { setError('No paper loaded.'); return }
     const m = model.trim()
     if (!m) { setError('Enter a model name.'); return }
-    if (!apiKey.trim()) { setError('Enter an API key.'); return }
+    const k = apiKey.trim()
+    if (!k) { setError('Enter an API key.'); return }
     setError(null)
     setLoading(true)
     try {
@@ -158,7 +225,7 @@ export default function Step2Strategy({ paperId, onDone, done, active }: Props) 
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paper_id: paperId, provider, model: m, api_key: apiKey.trim() }),
+        body: JSON.stringify({ paper_id: paperId, provider, model: m, api_key: k }),
       })
       if (!res.ok) {
         const text = await res.text()
@@ -180,103 +247,138 @@ export default function Step2Strategy({ paperId, onDone, done, active }: Props) 
     } finally {
       setLoading(false)
     }
-  }
+  }, [paperId, model, apiKey, tab, provider, onDone])
 
-  function headerBadge() {
-    if (specResult) return specResult.title || 'spec'
-    if (codeResult) return `code · ${codeResult.strategy_code.length} chars`
-    return null
-  }
+  const headerStyle = isActive ? HEADER_ACTIVE : HEADER_IDLE
+  const titleStyle = isActive ? TITLE_ACTIVE : TITLE_IDLE
+  const stepNumStyle = isDone ? STEP_NUM_DONE : isActive ? STEP_NUM_ACTIVE : STEP_NUM_IDLE
+
+  const headerBadgeText = specResult
+    ? (specResult.title || 'spec')
+    : codeResult
+    ? `code · ${codeResult.strategy_code.length} chars`
+    : null
+
+  // Style for the spec-toggle row depends on `specOpen`; cheap to inline-memoize.
+  const specToggleRowStyle = useMemo<React.CSSProperties>(() => ({
+    display: 'flex',
+    justifyContent: 'flex-end',
+    padding: '6px 20px 10px',
+    borderTop: specOpen ? '1px solid var(--border)' : undefined,
+  }), [specOpen])
 
   return (
-    <div style={cardStyle}>
+    <div style={cardStyle} className={isActive ? 'step-active' : undefined}>
+      {/* ── Header ── */}
       <div style={headerStyle}>
-        <div style={cirStyle}>{isDone ? '✓' : '2'}</div>
-        <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>Generate Strategy</span>
-        {isDone && headerBadge() && (
-          <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--mono)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {headerBadge()}
-          </span>
-        )}
+        <span style={stepNumStyle}>2</span>
+        <span style={titleStyle}>Generate Strategy</span>
+        {isDone && headerBadgeText && <span style={BADGE_STYLE}>{headerBadgeText}</span>}
       </div>
 
+      {/* ── Active body ── */}
       {isActive && (
-        <div style={{ padding: '0 16px 16px' }}>
-          {/* Generation mode tab */}
-          <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', marginBottom: 14, marginTop: 2 }}>
-            <button style={tabBtnStyle(tab === 'spec')} onClick={() => setTab('spec')}>Strategy Spec</button>
-            <button style={tabBtnStyle(tab === 'code')} onClick={() => setTab('code')}>Code Strategy</button>
+        <div style={BODY_STYLE}>
+          {/* Generation mode tab switcher */}
+          <div style={TAB_WRAP_STYLE}>
+            <button
+              onClick={() => setTab('spec')}
+              style={tab === 'spec' ? TAB_BTN_ON : TAB_BTN_OFF}
+            >
+              Strategy Spec
+            </button>
+            <button
+              onClick={() => setTab('code')}
+              style={tab === 'code' ? TAB_BTN_ON : TAB_BTN_OFF}
+            >
+              Code Strategy
+            </button>
           </div>
 
-          <label style={labelStyle}>Provider</label>
-          <select
-            style={{ ...sharedInput(), appearance: 'none', WebkitAppearance: 'none' }}
-            value={provider}
-            onChange={e => setProvider(e.target.value)}
-          >
-            {PROVIDERS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
+          {/* Provider select */}
+          <label style={LABEL_STYLE}>Provider</label>
+          <div style={SELECT_WRAP_STYLE}>
+            <select
+              className="dorq-select"
+              style={SELECT_STYLE}
+              value={provider}
+              onChange={onProviderChange}
+            >
+              {PROVIDER_OPTIONS}
+            </select>
+            <span style={SELECT_CARET_STYLE}>▾</span>
+          </div>
 
-          <label style={labelStyle}>Model</label>
+          {/* Model */}
+          <label style={LABEL_STYLE}>Model</label>
           <input
-            style={sharedInput()}
+            className="dorq-input"
+            style={INPUT_STYLE}
             type="text"
             placeholder="e.g. gpt-4o, claude-sonnet-4-6"
             value={model}
-            onChange={e => { setModel(e.target.value); setError(null) }}
+            onChange={onModelChange}
           />
 
-          <label style={labelStyle}>API Key</label>
+          {/* API Key */}
+          <label style={LABEL_STYLE}>API Key</label>
           <input
-            style={sharedInput()}
+            className="dorq-input"
+            style={INPUT_STYLE}
             type="password"
             placeholder="sk-…"
             value={apiKey}
-            onChange={e => { setApiKey(e.target.value); setError(null) }}
+            onChange={onApiKeyChange}
           />
 
-          <button style={generateBtn} onClick={handleGenerate} disabled={loading}>
-            {loading ? 'Generating…' : 'Generate'}
+          <button style={generateBtnStyle} onClick={handleGenerate} disabled={loading}>
+            {loading ? (
+              <span style={LOADING_SPAN}>
+                <span style={DOT_A}>•</span>
+                <span style={DOT_B}>•</span>
+                <span style={DOT_C}>•</span>
+              </span>
+            ) : (
+              'Generate'
+            )}
           </button>
 
-          {error && (
-            <p style={{ margin: '8px 0 0', fontSize: 12, color: 'var(--error, #cc0000)' }}>
-              {error}
-            </p>
-          )}
+          {error && <p style={ERROR_STYLE}>! {error}</p>}
         </div>
       )}
 
+      {/* ── Spec result info block ── */}
       {specResult !== null && (
-        <div style={{ padding: '0 16px 12px' }}>
-          <div style={infoBlock}>
-            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontWeight: 600, color: 'var(--text)', fontSize: 13 }}>{specResult.title}</span>
-              <button style={collapseBtn} onClick={() => setSpecOpen(o => !o)}>
-                {specOpen ? '▲ collapse' : '▼ expand'}
-              </button>
+        <div style={SPEC_WRAP_STYLE}>
+          <div style={SPEC_HEAD_STYLE}>
+            <div style={SPEC_TITLE_STYLE}>{specResult.title}</div>
+            {specOpen && <div style={SPEC_SUMMARY_STYLE}>{specResult.summary}</div>}
+          </div>
+
+          {specOpen && (
+            <div style={SPEC_DATA_STYLE}>
+              <InfoRow label="assets" value={specResult.assets.join(', ')} />
+              <InfoRow label="timeframe" value={specResult.timeframe} />
+              <InfoRow label="range" value={`${specResult.date_range[0]} → ${specResult.date_range[1]}`} />
             </div>
-            {specOpen && (
-              <>
-                <div style={{ marginBottom: 4, color: 'var(--muted)' }}>{specResult.summary}</div>
-                <div>assets: {specResult.assets.join(', ')}</div>
-                <div>timeframe: {specResult.timeframe}</div>
-                <div>range: {specResult.date_range[0]} → {specResult.date_range[1]}</div>
-              </>
-            )}
+          )}
+
+          <div style={specToggleRowStyle}>
+            <button onClick={toggleSpecOpen} style={SPEC_TOGGLE_BTN_STYLE}>
+              {specOpen ? 'COLLAPSE −' : 'EXPAND +'}
+            </button>
           </div>
         </div>
       )}
 
+      {/* ── Code result info block ── */}
       {codeResult !== null && (
-        <div style={{ padding: '0 16px 12px' }}>
-          <div style={infoBlock}>
-            <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: 13, marginBottom: 4 }}>Code Strategy</div>
-            <div>assets: {codeResult.portfolio_config.assets.join(', ')}</div>
-            <div>timeframe: {codeResult.portfolio_config.timeframe}</div>
-            <div>range: {codeResult.portfolio_config.date_range[0]} → {codeResult.portfolio_config.date_range[1]}</div>
-            <div>code: {codeResult.strategy_code.length} chars</div>
-          </div>
+        <div style={CODE_RESULT_WRAP_STYLE}>
+          <div style={CODE_LABEL_STYLE}>CODE STRATEGY</div>
+          <InfoRow label="assets" value={codeResult.portfolio_config.assets.join(', ')} />
+          <InfoRow label="timeframe" value={codeResult.portfolio_config.timeframe} />
+          <InfoRow label="range" value={`${codeResult.portfolio_config.date_range[0]} → ${codeResult.portfolio_config.date_range[1]}`} />
+          <InfoRow label="code length" value={`${codeResult.strategy_code.length} chars`} />
         </div>
       )}
     </div>

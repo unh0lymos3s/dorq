@@ -1,36 +1,34 @@
+import { useMemo } from 'react'
 import type React from 'react'
 import type { BacktestResult } from '../types'
 
 interface Props {
   result: BacktestResult | null
   active: boolean
+  animKey?: number
 }
 
-const CIRCLE: React.CSSProperties = {
-  width: 24,
-  height: 24,
-  borderRadius: '50%',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  fontSize: 11,
-  fontWeight: 700,
-  flexShrink: 0,
-  background: 'var(--text)',
-  color: 'var(--bg)',
-  border: 'none',
+// Metric kinds — use plain object lookup (one hashmap probe) instead of three Set.has() calls.
+const enum MetricKind { Percent, Ratio, Integer }
+
+interface MetricMeta {
+  label: string
+  kind: MetricKind
 }
 
-const CIRCLE_IDLE: React.CSSProperties = {
-  ...CIRCLE,
-  background: 'transparent',
-  color: 'var(--muted)',
-  border: '1.5px solid var(--border)',
+const METRIC_META: Record<string, MetricMeta> = {
+  total_return:      { label: 'Total Return',   kind: MetricKind.Percent },
+  annualized_return: { label: 'Ann. Return',    kind: MetricKind.Percent },
+  sharpe_ratio:      { label: 'Sharpe Ratio',   kind: MetricKind.Ratio },
+  max_drawdown:      { label: 'Max Drawdown',   kind: MetricKind.Percent },
+  win_rate:          { label: 'Win Rate',       kind: MetricKind.Percent },
+  total_trades:      { label: 'Total Trades',   kind: MetricKind.Integer },
+  calmar_ratio:      { label: 'Calmar Ratio',   kind: MetricKind.Ratio },
+  volatility:        { label: 'Volatility',     kind: MetricKind.Percent },
 }
 
-const METRIC_KEYS = [
-  'total_return',
-  'annualized_return',
+// Grid order excludes the two hero metrics.
+const GRID_KEYS = [
   'sharpe_ratio',
   'max_drawdown',
   'win_rate',
@@ -39,159 +37,180 @@ const METRIC_KEYS = [
   'volatility',
 ] as const
 
-type MetricKey = typeof METRIC_KEYS[number]
-
-const METRIC_LABELS: Record<MetricKey, string> = {
-  total_return: 'Total Return',
-  annualized_return: 'Ann. Return',
-  sharpe_ratio: 'Sharpe Ratio',
-  max_drawdown: 'Max Drawdown',
-  win_rate: 'Win Rate',
-  total_trades: 'Total Trades',
-  calmar_ratio: 'Calmar Ratio',
-  volatility: 'Volatility',
+function formatValue(meta: MetricMeta, raw: number | null | undefined): string {
+  if (raw == null) return '—'
+  switch (meta.kind) {
+    case MetricKind.Percent: return `${(raw * 100).toFixed(2)}%`
+    case MetricKind.Integer: return String(Math.round(raw))
+    case MetricKind.Ratio:
+    default: return raw.toFixed(3)
+  }
 }
 
-const PERCENTAGE_KEYS: Set<MetricKey> = new Set([
-  'total_return',
-  'annualized_return',
-  'max_drawdown',
-  'win_rate',
-  'volatility',
-])
-
-const RATIO_KEYS: Set<MetricKey> = new Set([
-  'sharpe_ratio',
-  'calmar_ratio',
-])
-
-const INTEGER_KEYS: Set<MetricKey> = new Set([
-  'total_trades',
-])
-
-function formatValue(key: MetricKey, raw: number | null | undefined): string {
+function formatHeroReturn(raw: number | null | undefined): string {
   if (raw == null) return '—'
-  if (PERCENTAGE_KEYS.has(key)) {
-    return `${(raw * 100).toFixed(2)}%`
-  }
-  if (RATIO_KEYS.has(key)) {
-    return raw.toFixed(3)
-  }
-  if (INTEGER_KEYS.has(key)) {
-    return String(Math.round(raw))
-  }
-  return raw.toFixed(3)
+  const v = raw * 100
+  return v >= 0 ? `+${v.toFixed(2)}%` : `−${(-v).toFixed(2)}%`
+}
+
+// ─── Module-scope style constants ──────────────────────────────────────────
+const CARD_ACTIVE: React.CSSProperties = { border: '2px solid var(--text)', position: 'relative', zIndex: 1, marginTop: -1, overflow: 'hidden' }
+const CARD_DONE: React.CSSProperties = { border: '1px solid var(--border)', marginTop: -1, overflow: 'hidden' }
+const CARD_IDLE: React.CSSProperties = { border: '1px solid var(--border)', marginTop: -1, overflow: 'hidden', opacity: 0.4 }
+
+const HEADER_BASE: React.CSSProperties = {
+  height: 52, padding: '0 20px', display: 'flex', alignItems: 'center', gap: 16,
+}
+const HEADER_ACTIVE: React.CSSProperties = { ...HEADER_BASE, background: 'var(--bg)' }
+const HEADER_IDLE: React.CSSProperties = { ...HEADER_BASE, background: 'var(--surface)' }
+
+const STEP_NUM_ACTIVE: React.CSSProperties = { fontSize: 28, fontWeight: 800, color: 'var(--text)', fontFamily: 'var(--font)', lineHeight: 1, flexShrink: 0 }
+const STEP_NUM_DONE: React.CSSProperties = { fontSize: 20, fontWeight: 800, color: 'var(--muted)', fontFamily: 'var(--font)', lineHeight: 1, textDecoration: 'line-through', flexShrink: 0 }
+const STEP_NUM_IDLE: React.CSSProperties = { fontSize: 28, fontWeight: 800, color: 'var(--subtle)', fontFamily: 'var(--font)', lineHeight: 1, flexShrink: 0 }
+
+const TITLE_STYLE: React.CSSProperties = {
+  fontSize: 13, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+  color: 'var(--text)', flex: 1,
+}
+
+const SECTION_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+  color: 'var(--muted)', paddingBottom: 10, marginBottom: 0, borderBottom: '1px solid var(--border)',
+  display: 'block',
+}
+
+const BODY_DONE_STYLE: React.CSSProperties = {
+  borderTop: '1px solid var(--border)', padding: '20px 20px 24px', animation: 'fadeIn 0.4s ease',
+}
+const BODY_EMPTY_STYLE: React.CSSProperties = {
+  borderTop: '1px solid var(--border)', padding: '20px 20px 24px', animation: 'slideDown 0.22s ease',
+}
+
+const HERO_WRAP_STYLE: React.CSSProperties = {
+  borderBottom: '1px solid var(--border)', padding: '20px 0 24px', marginBottom: 24,
+}
+const HERO_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase',
+  color: 'var(--muted)', marginBottom: 8,
+}
+const HERO_VALUE_STYLE: React.CSSProperties = {
+  fontSize: 52, fontWeight: 800, fontFamily: 'var(--font)', color: 'var(--text)',
+  lineHeight: 1, marginBottom: 8,
+}
+const HERO_SUB_STYLE: React.CSSProperties = {
+  fontSize: 13, fontFamily: 'var(--mono)', color: 'var(--muted)',
+}
+
+const GRID_STYLE: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0,
+  border: '1px solid var(--border)', marginBottom: 32,
+}
+
+const CELL_LABEL_STYLE: React.CSSProperties = {
+  fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
+  color: 'var(--muted)', marginBottom: 6,
+}
+const CELL_VALUE_STYLE: React.CSSProperties = {
+  fontSize: 22, fontWeight: 700, fontFamily: 'var(--mono)', color: 'var(--text)',
+}
+
+// Pre-built per-cell border style cache — there are only four possibilities
+// (right/not-right × last-row/not-last-row).
+const CELL_PAD: React.CSSProperties = { padding: '14px 16px' }
+const CELL_TL: React.CSSProperties = { ...CELL_PAD, borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }
+const CELL_TR: React.CSSProperties = { ...CELL_PAD, borderBottom: '1px solid var(--border)' }
+const CELL_BL: React.CSSProperties = { ...CELL_PAD, borderRight: '1px solid var(--border)' }
+const CELL_BR: React.CSSProperties = CELL_PAD
+
+const CHARTS_WRAP_STYLE: React.CSSProperties = { display: 'flex', flexDirection: 'column' }
+const CHART_IMG_STYLE: React.CSSProperties = {
+  border: '1px solid var(--border)', marginTop: 16, width: '100%', display: 'block',
+}
+
+const BADGE_STYLE: React.CSSProperties = {
+  fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--mono)', letterSpacing: '0.04em',
+}
+
+const EMPTY_STATE_STYLE: React.CSSProperties = {
+  padding: '32px 0', textAlign: 'center', fontSize: 11, letterSpacing: '0.1em',
+  textTransform: 'uppercase', color: 'var(--muted)',
 }
 
 export default function Step4Results({ result, active }: Props) {
   const isDone = result !== null
   const isActive = active
 
-  const cardStyle: React.CSSProperties = {
-    border: isActive
-      ? '2px solid var(--text)'
-      : '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    overflow: 'hidden',
-    opacity: !active ? 0.45 : 1,
-  }
+  const cardStyle = isActive ? CARD_ACTIVE : isDone ? CARD_DONE : CARD_IDLE
+  const headerStyle = isActive ? HEADER_ACTIVE : HEADER_IDLE
+  const stepNumberStyle = isActive ? STEP_NUM_ACTIVE : isDone ? STEP_NUM_DONE : STEP_NUM_IDLE
 
-  const headerStyle: React.CSSProperties = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    padding: '12px 16px',
-    background: 'var(--surface)',
-  }
+  const totalReturn = result?.metrics['total_return'] ?? null
+  const annReturn = result?.metrics['annualized_return'] ?? null
 
-  const cirStyle = isDone || isActive ? CIRCLE : CIRCLE_IDLE
+  // Memoize chart data URIs by reference — when `result.charts` is the same
+  // array, we don't reallocate the strings (each is ~hundreds of KB).
+  const chartSources = useMemo(() => {
+    if (!result?.charts?.length) return null
+    return result.charts.map(b64 => `data:image/png;base64,${b64}`)
+  }, [result?.charts])
 
-  const metricGrid: React.CSSProperties = {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 10,
-    marginBottom: 20,
-  }
-
-  const metricCard: React.CSSProperties = {
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    padding: '10px 12px',
-    background: 'var(--subtle)',
-    minWidth: 0,
-  }
-
-  const metricLabel: React.CSSProperties = {
-    fontSize: 11,
-    color: 'var(--muted)',
-    marginBottom: 4,
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.04em',
-    fontWeight: 500,
-  }
-
-  const metricValue: React.CSSProperties = {
-    fontSize: 20,
-    fontWeight: 700,
-    color: 'var(--text)',
-    fontFamily: 'var(--mono)',
-    whiteSpace: 'nowrap' as const,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  }
+  // Build grid cells once per result; avoids the per-render i%2 / >=len-2 math
+  // and lets us pick from the cached border styles.
+  const gridCells = useMemo(() => {
+    if (!result) return null
+    const total = GRID_KEYS.length
+    return GRID_KEYS.map((key, i) => {
+      const meta = METRIC_META[key]
+      const raw = result.metrics[key]
+      const isRightCol = (i & 1) === 1
+      const isLastRow = i >= total - 2
+      const cellStyle = isLastRow
+        ? (isRightCol ? CELL_BR : CELL_BL)
+        : (isRightCol ? CELL_TR : CELL_TL)
+      return (
+        <div key={key} style={cellStyle}>
+          <div style={CELL_LABEL_STYLE}>{meta.label}</div>
+          <div style={CELL_VALUE_STYLE}>{formatValue(meta, raw)}</div>
+        </div>
+      )
+    })
+  }, [result])
 
   return (
-    <div style={cardStyle}>
+    <div style={cardStyle} className={active && result !== null ? 'step-active' : undefined}>
       <div style={headerStyle}>
-        <div style={cirStyle}>{isDone ? '✓' : '4'}</div>
-        <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>Results</span>
-        {isDone && result && (
-          <span style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--mono)' }}>
-            {result.backtest_id}
-          </span>
-        )}
+        <span style={stepNumberStyle}>4</span>
+        <span style={TITLE_STYLE}>Results</span>
+        {isDone && result && <span style={BADGE_STYLE}>{result.backtest_id}</span>}
       </div>
 
       {isActive && result && (
-        <div style={{ padding: '0 16px 20px' }}>
-          {/* Metrics grid */}
-          <div style={{ marginBottom: 8, marginTop: 12 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-              Metrics
-            </span>
-          </div>
-          <div style={metricGrid}>
-            {METRIC_KEYS.map(key => {
-              const raw = result.metrics[key]
-              return (
-                <div key={key} style={metricCard}>
-                  <div style={metricLabel}>{METRIC_LABELS[key]}</div>
-                  <div style={metricValue}>{formatValue(key, raw)}</div>
-                </div>
-              )
-            })}
+        <div style={BODY_DONE_STYLE}>
+          {/* Hero metric */}
+          <div style={HERO_WRAP_STYLE}>
+            <div style={HERO_LABEL_STYLE}>Total Return</div>
+            <div style={HERO_VALUE_STYLE}>{formatHeroReturn(totalReturn)}</div>
+            {annReturn != null && (
+              <div style={HERO_SUB_STYLE}>Annualized: {formatHeroReturn(annReturn)}</div>
+            )}
           </div>
 
-          {/* Charts */}
-          {result.charts.length > 0 && (
+          <span style={SECTION_LABEL_STYLE}>Metrics</span>
+
+          <div style={GRID_STYLE}>{gridCells}</div>
+
+          {chartSources && (
             <>
-              <div style={{ marginBottom: 10 }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-                  Charts
-                </span>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {result.charts.map((b64, i) => (
+              <span style={SECTION_LABEL_STYLE}>Charts</span>
+              <div style={CHARTS_WRAP_STYLE}>
+                {chartSources.map((src, i) => (
                   <img
                     key={i}
-                    src={`data:image/png;base64,${b64}`}
+                    src={src}
                     alt={`Chart ${i + 1}`}
-                    style={{
-                      width: '100%',
-                      borderRadius: 'var(--radius)',
-                      border: '1px solid var(--border)',
-                      display: 'block',
-                    }}
+                    style={CHART_IMG_STYLE}
+                    loading="lazy"
+                    decoding="async"
                   />
                 ))}
               </div>
@@ -201,10 +220,8 @@ export default function Step4Results({ result, active }: Props) {
       )}
 
       {isActive && !result && (
-        <div style={{ padding: '12px 16px 16px' }}>
-          <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-            Run a backtest to see results here.
-          </p>
+        <div style={BODY_EMPTY_STYLE}>
+          <div style={EMPTY_STATE_STYLE}>Awaiting backtest execution</div>
         </div>
       )}
     </div>

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -6,7 +7,7 @@ from pathlib import Path
 import litellm
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from api.routes import backtest, papers, strategies
@@ -30,11 +31,17 @@ litellm.telemetry = False
 litellm.suppress_debug_info = settings.log_level != "debug"
 
 
+_FRONTEND = Path(__file__).parent / "frontend"
+_INDEX_PATH = _FRONTEND / "index.html"
+# Snapshot at import time so the SPA fallback never re-stats the filesystem.
+_INDEX_EXISTS = _INDEX_PATH.is_file()
+_NO_FRONTEND_RESPONSE = JSONResponse({"status": "frontend not built"})
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log = logging.getLogger("dorq.startup")
     log.info("startup.docling_warmup")
-    import asyncio
     from core.document.parser import warmup
     t0 = time.perf_counter()
     await asyncio.get_running_loop().run_in_executor(None, warmup)
@@ -65,17 +72,17 @@ async def healthz():
     return {"status": "ok"}
 
 
-_FRONTEND = Path(__file__).parent / "frontend"
-
-# Mount /assets for Vite's hashed JS/CSS bundles (must come before the catch-all)
+# Mount /assets for Vite's hashed JS/CSS bundles (must come before the catch-all).
+# Vite emits content-hashed filenames, so we can cache aggressively.
 if (_FRONTEND / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=_FRONTEND / "assets"), name="assets")
 
 
-# SPA fallback: serve index.html for all unmatched routes (client-side routing)
+# SPA fallback: serve index.html for all unmatched routes (client-side routing).
+# index.html must NOT be cached aggressively (it references hashed assets),
+# but FileResponse will set ETag/Last-Modified so 304s short-circuit re-downloads.
 @app.get("/{full_path:path}", include_in_schema=False)
-async def spa_fallback(full_path: str):
-    index = _FRONTEND / "index.html"
-    if index.is_file():
-        return FileResponse(index)
-    return {"status": "frontend not built"}
+async def spa_fallback(full_path: str) -> Response:
+    if _INDEX_EXISTS:
+        return FileResponse(_INDEX_PATH)
+    return _NO_FRONTEND_RESPONSE

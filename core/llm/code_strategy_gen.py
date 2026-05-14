@@ -35,17 +35,20 @@ async def generate_code_strategy(
     kwargs = build_litellm_kwargs(provider, model, api_key)
     kwargs["max_tokens"] = 4096
 
+    # Build user content once; sections.get with the same default is fine.
+    sections = parsed_paper.sections
     user_content = CODE_USER_PROMPT_TEMPLATE.format(
-        abstract=parsed_paper.sections.get("abstract", ""),
-        methodology=parsed_paper.sections.get("methodology", ""),
-        results=parsed_paper.sections.get("results", ""),
+        abstract=sections.get("abstract", ""),
+        methodology=sections.get("methodology", ""),
+        results=sections.get("results", ""),
     )
+    user_msg = {"role": "user", "content": user_content}
     messages = [
         {"role": "system", "content": CODE_SYSTEM_PROMPT},
-        {"role": "user", "content": user_content},
+        user_msg,
     ]
 
-    last_exc: Exception = ValueError("llm_invalid_json")
+    last_exc: Exception | None = None
     for attempt in range(2):
         content = await complete(messages, **kwargs)
         try:
@@ -54,5 +57,7 @@ async def generate_code_strategy(
             raise  # LLM declined — do not retry
         except (json.JSONDecodeError, ValidationError, TypeError, KeyError) as exc:
             last_exc = exc
-        messages[1]["content"] = CODE_RETRY_PREFIX + user_content
+            if attempt == 0:
+                # Swap content in-place for the retry; avoids rebuilding the list.
+                user_msg["content"] = CODE_RETRY_PREFIX + user_content
     raise ValueError("llm_invalid_json") from last_exc

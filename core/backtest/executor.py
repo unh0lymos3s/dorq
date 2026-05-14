@@ -20,13 +20,38 @@ _NAMESPACE_BASE = {
     "__builtins__": _SAFE_BUILTINS,
 }
 
+# Cache compiled bytecode by source — same LLM output is often retried/reused.
+# Bounded by LRU semantics on the wrapper below.
+from functools import lru_cache as _lru_cache
+
+
+@_lru_cache(maxsize=32)
+def _compile_strategy(source: str):
+    # compile() once, then exec the code object on each call — avoids re-parsing.
+    return compile(source, "<strategy>", "exec")
+
+
+def _coerce_bool_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Cheapest path: skip allocation entirely when already bool with no NaNs."""
+    # Fast path: every column is already bool dtype — nothing to do.
+    if all(dt == np.bool_ for dt in df.dtypes):
+        return df
+    # Need a copy; combine fillna+astype using a single where + cast to avoid
+    # double allocation. .fillna(False).astype(bool) materializes twice.
+    return df.where(df.notna(), False).astype(bool, copy=False)
+
 
 def exec_strategy(source: str, bars: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     validate_strategy_code(source)
 
+    try:
+        code_obj = _compile_strategy(source)
+    except SyntaxError as exc:
+        raise ValueError(f"strategy_exec_error: {exc}") from exc
+
     namespace = dict(_NAMESPACE_BASE)
     try:
-        exec(source, namespace)  # noqa: S102
+        exec(code_obj, namespace)  # noqa: S102
     except Exception as exc:
         raise ValueError(f"strategy_exec_error: {exc}") from exc
 
@@ -46,4 +71,4 @@ def exec_strategy(source: str, bars: dict) -> tuple[pd.DataFrame, pd.DataFrame]:
     if not isinstance(entries_df, pd.DataFrame) or not isinstance(exits_df, pd.DataFrame):
         raise ValueError("entries_df and exits_df must both be pd.DataFrame")
 
-    return entries_df.fillna(False).astype(bool), exits_df.fillna(False).astype(bool)
+    return _coerce_bool_df(entries_df), _coerce_bool_df(exits_df)
