@@ -1,9 +1,10 @@
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request, status
 from pydantic import BaseModel
 
+from core.errors import ERR_DOCLING_PARSE, ERR_LLM_INVALID_JSON, ERR_STRATEGY_RUNTIME, raise_http
 from core.llm.code_strategy_gen import generate_code_strategy
 from core.llm.strategy_gen import generate_strategy
 
@@ -28,7 +29,7 @@ async def generate_strategy_route(request: Request, body: GenerateRequest):
     entry = await request.app.state.papers.get(body.paper_id)
     if entry is None:
         logger.info("strategy.generate not_found paper_id=%s", body.paper_id)
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"paper {body.paper_id!r} not found")
+        raise_http(status.HTTP_404_NOT_FOUND, "not_found", f"paper {body.paper_id!r} not found")
 
     parsed = entry["parsed"]
 
@@ -36,12 +37,20 @@ async def generate_strategy_route(request: Request, body: GenerateRequest):
         spec = await generate_strategy(parsed, body.provider, body.model, body.api_key)
     except ValueError as exc:
         msg = str(exc)
-        detail = "LLM failed to produce valid JSON after retry" if msg == "llm_invalid_json" else msg
-        logger.info("strategy.generate failed paper_id=%s error=%s", body.paper_id, detail)
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail) from exc
+        if msg == "llm_invalid_json":
+            logger.info("strategy.generate failed paper_id=%s error=%s", body.paper_id, msg)
+            raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_LLM_INVALID_JSON,
+                       "LLM returned unparseable JSON after retry")
+        elif msg.startswith("docling_parse_error"):
+            detail = msg.split(": ", 1)[1] if ": " in msg else msg
+            logger.info("strategy.generate failed paper_id=%s error=%s", body.paper_id, msg)
+            raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_DOCLING_PARSE, detail)
+        else:
+            logger.info("strategy.generate failed paper_id=%s error=%s", body.paper_id, msg)
+            raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_STRATEGY_RUNTIME, msg)
     except Exception as exc:
         logger.error("strategy.generate error paper_id=%s", body.paper_id, exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "strategy_runtime_error") from exc
+        raise_http(status.HTTP_500_INTERNAL_SERVER_ERROR, ERR_STRATEGY_RUNTIME, "strategy_runtime_error")
 
     await request.app.state.strategies.put(body.paper_id, spec)
     logger.info("strategy.generate done paper_id=%s assets=%s timeframe=%s",
@@ -57,7 +66,7 @@ async def generate_code_strategy_route(request: Request, body: GenerateRequest):
     entry = await request.app.state.papers.get(body.paper_id)
     if entry is None:
         logger.info("strategy.generate_code not_found paper_id=%s", body.paper_id)
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"paper {body.paper_id!r} not found")
+        raise_http(status.HTTP_404_NOT_FOUND, "not_found", f"paper {body.paper_id!r} not found")
 
     parsed = entry["parsed"]
 
@@ -65,12 +74,20 @@ async def generate_code_strategy_route(request: Request, body: GenerateRequest):
         code, config = await generate_code_strategy(parsed, body.provider, body.model, body.api_key)
     except ValueError as exc:
         msg = str(exc)
-        detail = "LLM failed to produce valid JSON after retry" if msg == "llm_invalid_json" else msg
-        logger.info("strategy.generate_code failed paper_id=%s error=%s", body.paper_id, detail)
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail) from exc
+        if msg == "llm_invalid_json":
+            logger.info("strategy.generate_code failed paper_id=%s error=%s", body.paper_id, msg)
+            raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_LLM_INVALID_JSON,
+                       "LLM returned unparseable JSON after retry")
+        elif msg.startswith("docling_parse_error"):
+            detail = msg.split(": ", 1)[1] if ": " in msg else msg
+            logger.info("strategy.generate_code failed paper_id=%s error=%s", body.paper_id, msg)
+            raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_DOCLING_PARSE, detail)
+        else:
+            logger.info("strategy.generate_code failed paper_id=%s error=%s", body.paper_id, msg)
+            raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_STRATEGY_RUNTIME, msg)
     except Exception as exc:
         logger.error("strategy.generate_code error paper_id=%s", body.paper_id, exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "strategy_runtime_error") from exc
+        raise_http(status.HTTP_500_INTERNAL_SERVER_ERROR, ERR_STRATEGY_RUNTIME, "strategy_runtime_error")
 
     strategy_id = body.paper_id + ":code"
     payload = {"strategy_code": code, "portfolio_config": config}

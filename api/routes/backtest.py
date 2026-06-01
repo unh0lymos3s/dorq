@@ -2,12 +2,13 @@ import logging
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Request, status
 from pydantic import BaseModel, SecretStr, model_validator
 
 from core.backtest.data import fetch_bars
 from core.backtest.engine import run_backtest, run_backtest_from_code
 from core.backtest.metrics import extract_metrics, render_charts
+from core.errors import ERR_ALPACA_FETCH, ERR_BACKTEST_RUNTIME, ERR_INTERNAL, raise_http
 from core.models.backtest import BacktestResult
 from core.models.strategy import PortfolioConfig, StrategySpec
 
@@ -50,8 +51,11 @@ async def run_backtest_route(request: Request, body: BacktestRunBody):
             secret_key=secret_key,
         )
     except ValueError as exc:
-        logger.info("backtest.fetch_bars failed assets=%s error=%s", src.assets, exc)
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        msg = str(exc)
+        logger.info("backtest.fetch_bars failed assets=%s error=%s", src.assets, msg)
+        # Extract the detail portion after the error code prefix if present
+        detail = msg.split(": ", 1)[1] if ": " in msg else msg
+        raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_ALPACA_FETCH, detail)
 
     try:
         if body.mode == "spec":
@@ -59,19 +63,24 @@ async def run_backtest_route(request: Request, body: BacktestRunBody):
         else:
             portfolio = await run_backtest_from_code(body.portfolio_config, body.strategy_code, bars)
     except ValueError as exc:
-        logger.info("backtest.run failed mode=%s error=%s", body.mode, exc)
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        msg = str(exc)
+        logger.info("backtest.run failed mode=%s error=%s", body.mode, msg)
+        raise_http(status.HTTP_422_UNPROCESSABLE_ENTITY, ERR_BACKTEST_RUNTIME, msg)
     except Exception as exc:
         logger.error("backtest.run error mode=%s", body.mode, exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "backtest_runtime_error") from exc
+        raise_http(status.HTTP_500_INTERNAL_SERVER_ERROR, ERR_BACKTEST_RUNTIME, "backtest_runtime_error")
 
-    metrics = extract_metrics(portfolio)
+    metrics = extract_metrics(portfolio, price_data=bars)
     charts = render_charts(portfolio)
+
+    # Attach strategy_spec only for spec-mode runs (code-mode has no StrategySpec).
+    saved_spec: StrategySpec | None = body.strategy_spec if body.mode == "spec" else None
 
     result = BacktestResult(
         backtest_id=str(uuid.uuid4()),
         metrics=metrics,
         charts=charts,
+        strategy_spec=saved_spec,
     )
     await request.app.state.backtests.put(result.backtest_id, result)
     logger.info("backtest.done backtest_id=%s total_return=%s num_trades=%s",
@@ -84,5 +93,5 @@ async def get_backtest(request: Request, backtest_id: str):
     result = await request.app.state.backtests.get(backtest_id)
     if result is None:
         logger.info("backtest.get not_found backtest_id=%s", backtest_id)
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"backtest {backtest_id!r} not found")
+        raise_http(status.HTTP_404_NOT_FOUND, "not_found", f"backtest {backtest_id!r} not found")
     return result

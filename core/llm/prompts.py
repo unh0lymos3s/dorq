@@ -52,3 +52,25 @@ RETRY_PREFIX = (
 
 # Providers that support response_format={"type": "json_object"}
 JSON_MODE_PROVIDERS = {"openai", "groq", "azure"}
+
+CHAT_SYSTEM_PROMPT = """\
+You are a quantitative research assistant helping users understand financial research papers and trading strategies.
+
+Answer questions clearly and concisely based only on the provided context. If the answer cannot be determined from the context, say so explicitly — do not speculate or fabricate information.
+
+{context}
+"""
+
+CHAT_PAPER_CONTEXT = """\
+## Research Paper Context
+
+{paper_markdown}
+"""
+
+CHAT_STRATEGY_CONTEXT = """\
+## Strategy Specification
+
+```json
+{strategy_json}
+```
+"""
