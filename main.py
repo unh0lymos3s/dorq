@@ -85,6 +85,15 @@ async def healthz():
     return {"status": "ok"}
 
 
+@app.get("/config")
+async def client_config():
+    """Public, non-secret runtime config the UI reads on load."""
+    return {
+        "ollama_model": settings.ollama_model,
+        "alpaca_configured": settings.alpaca_configured,
+    }
+
+
 # Mount /assets for Vite's hashed JS/CSS bundles (must come before the catch-all).
 # Vite emits content-hashed filenames, so we can cache aggressively.
 if (_FRONTEND / "assets").is_dir():

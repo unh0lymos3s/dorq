@@ -1,12 +1,11 @@
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel
 
 from core.models.strategy import StrategySpec
 
 
 class BacktestRequest(BaseModel):
+    # Alpaca credentials are read from the server environment, not the client.
     strategy_spec: StrategySpec
-    alpaca_api_key: SecretStr
-    alpaca_secret_key: SecretStr
 
 
 class BacktestResult(BaseModel):

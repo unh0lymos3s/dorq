@@ -1,5 +1,4 @@
 import logging
-from typing import Literal
 
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel
@@ -11,20 +10,14 @@ from core.llm.strategy_gen import generate_strategy
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 logger = logging.getLogger("dorq." + __name__)
 
-Provider = Literal["openai", "anthropic", "groq", "azure", "bedrock", "ollama", "gemini"]
-
 
 class GenerateRequest(BaseModel):
     paper_id: str
-    provider: Provider
-    model: str
-    api_key: str
 
 
 @router.post("/generate")
 async def generate_strategy_route(request: Request, body: GenerateRequest):
-    logger.info("strategy.generate paper_id=%s provider=%s model=%s",
-                body.paper_id, body.provider, body.model)
+    logger.info("strategy.generate paper_id=%s", body.paper_id)
 
     entry = await request.app.state.papers.get(body.paper_id)
     if entry is None:
@@ -34,7 +27,7 @@ async def generate_strategy_route(request: Request, body: GenerateRequest):
     parsed = entry["parsed"]
 
     try:
-        spec = await generate_strategy(parsed, body.provider, body.model, body.api_key)
+        spec = await generate_strategy(parsed)
     except ValueError as exc:
         msg = str(exc)
         if msg == "llm_invalid_json":
@@ -60,8 +53,7 @@ async def generate_strategy_route(request: Request, body: GenerateRequest):
 
 @router.post("/generate-code")
 async def generate_code_strategy_route(request: Request, body: GenerateRequest):
-    logger.info("strategy.generate_code paper_id=%s provider=%s model=%s",
-                body.paper_id, body.provider, body.model)
+    logger.info("strategy.generate_code paper_id=%s", body.paper_id)
 
     entry = await request.app.state.papers.get(body.paper_id)
     if entry is None:
@@ -71,7 +63,7 @@ async def generate_code_strategy_route(request: Request, body: GenerateRequest):
     parsed = entry["parsed"]
 
     try:
-        code, config = await generate_code_strategy(parsed, body.provider, body.model, body.api_key)
+        code, config = await generate_code_strategy(parsed)
     except ValueError as exc:
         msg = str(exc)
         if msg == "llm_invalid_json":

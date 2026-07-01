@@ -15,6 +15,7 @@ from fastapi import HTTPException
 # ---------------------------------------------------------------------------
 
 ERR_ALPACA_FETCH = "alpaca_fetch_error"
+ERR_ALPACA_NOT_CONFIGURED = "alpaca_not_configured"
 ERR_BACKTEST_RUNTIME = "backtest_runtime_error"
 ERR_LLM_INVALID_JSON = "llm_invalid_json"
 ERR_DOCLING_PARSE = "docling_parse_error"

@@ -46,8 +46,13 @@ export interface CodeStrategyResult {
 
 export interface BacktestResult {
   backtest_id: string
-  metrics: Record<string, number | null>
+  metrics: Record<string, number | string | null>
   charts: string[]
 }
 
 export type GenerateMode = 'spec' | 'code'
+
+export interface ServerConfig {
+  ollama_model: string
+  alpaca_configured: boolean
+}

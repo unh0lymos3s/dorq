@@ -7,7 +7,6 @@ from functools import lru_cache
 # Dedicated pool — docling is CPU/torch-heavy; 2 workers prevents GIL thrash
 _PARSE_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="docling")
 
-_PARSE_TIMEOUT = 120  # seconds
 _MAX_PDF_BYTES = 50 * 1024 * 1024  # 50 MB
 _PDF_MAGIC = b"%PDF-"
 
@@ -31,11 +30,10 @@ def _convert_path(path: str) -> str:
 
 
 async def _run(path: str) -> str:
+    # No timeout: docling is CPU-bound and can run for minutes on a GPU-less
+    # machine. Let it finish rather than aborting a slow-but-valid parse.
     loop = asyncio.get_running_loop()
-    return await asyncio.wait_for(
-        loop.run_in_executor(_PARSE_POOL, _convert_path, path),
-        timeout=_PARSE_TIMEOUT,
-    )
+    return await loop.run_in_executor(_PARSE_POOL, _convert_path, path)
 
 
 def _write_tmp_pdf(pdf_bytes: bytes) -> str:

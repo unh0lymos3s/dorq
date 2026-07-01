@@ -1,11 +1,14 @@
 const FRIENDLY: Record<string, string> = {
   // Parser
-  parse_runtime_error: 'The document parser timed out. Try a shorter PDF or use a URL instead.',
-  // LLM
-  llm_invalid_json: 'The AI model returned an unreadable response. Please retry.',
-  strategy_runtime_error: 'Strategy generation failed unexpectedly. Try a different model.',
+  parse_runtime_error: 'The document parser failed on that file. Try a different PDF or use a URL instead.',
+  docling_parse_error: 'Could not read that document. Try a different PDF or URL.',
+  // LLM (local Ollama)
+  llm_invalid_json: 'The local model returned an unreadable response. Please retry.',
+  strategy_runtime_error: 'Strategy generation failed. Make sure Ollama is running and the model is pulled.',
+  llm_error: 'Couldn’t reach the local model. Make sure Ollama is running and the model is pulled.',
   // Backtest
-  backtest_runtime_error: 'The backtest engine encountered an error. Check your strategy and try again.',
+  backtest_runtime_error: 'The backtest engine hit an error. Check the strategy and try again.',
+  alpaca_not_configured: 'Market data isn’t configured on the server. Set the Alpaca keys and restart.',
 }
 
 const DETAIL_PREFIX: Array<[string, (rest: string) => string]> = [
@@ -15,31 +18,42 @@ const DETAIL_PREFIX: Array<[string, (rest: string) => string]> = [
   ['strategy_code must', rest => `Invalid strategy code: must${rest}`],
 ]
 
+interface ErrorEnvelope {
+  // raise_http envelopes: { detail: { error, detail } }
+  // plain HTTPException:   { detail: "..." }
+  detail?: string | { error?: string; detail?: string }
+}
+
 export async function friendlyError(res: Response): Promise<Error> {
-  let detail = `Request failed (HTTP ${res.status})`
+  let code: string | undefined
+  let message = `Request failed (HTTP ${res.status})`
+
   try {
-    const body = await res.json()
-    if (typeof body?.detail === 'string') {
-      detail = body.detail
+    const body: ErrorEnvelope = await res.json()
+    if (typeof body.detail === 'string') {
+      message = body.detail
+    } else if (body.detail && typeof body.detail === 'object') {
+      code = body.detail.error
+      if (body.detail.detail) message = body.detail.detail
     }
   } catch {
-    // non-JSON body — keep default
+    // non-JSON body — keep default message
   }
 
-  // Exact match
-  if (FRIENDLY[detail]) return new Error(FRIENDLY[detail])
+  // Map a known error code to a friendly, actionable line.
+  if (code && FRIENDLY[code]) return new Error(FRIENDLY[code])
+  if (FRIENDLY[message]) return new Error(FRIENDLY[message])
 
-  // Prefix match
+  // Prefix match against the raw detail text.
   for (const [prefix, fn] of DETAIL_PREFIX) {
-    if (detail.startsWith(prefix)) return new Error(fn(detail.slice(prefix.length)))
+    if (message.startsWith(prefix)) return new Error(fn(message.slice(prefix.length)))
   }
 
   // HTTP status fallbacks
-  if (res.status === 422) return new Error(detail) // already human from pydantic
   if (res.status === 404) return new Error('Resource not found.')
-  if (res.status === 500) return new Error('Server error. Please try again.')
-  if (res.status === 413) return new Error('File is too large.')
+  if (res.status === 413) return new Error('That file is too large.')
   if (res.status === 429) return new Error('Too many requests. Please wait a moment.')
+  if (res.status >= 500) return new Error(message || 'Server error. Please try again.')
 
-  return new Error(detail)
+  return new Error(message)
 }

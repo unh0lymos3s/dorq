@@ -25,9 +25,6 @@ class ChatRequest(BaseModel):
     question: str
     paper_id: str | None = None
     strategy_id: str | None = None  # corresponds to a backtest_id stored in app.state.backtests
-    provider: str                    # e.g. "anthropic/claude-sonnet-4-6" or just "anthropic"
-    model: str
-    api_key: str
 
 
 class ChatResponse(BaseModel):
@@ -84,26 +81,23 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
         {"role": "user", "content": body.question},
     ]
 
-    kwargs = build_litellm_kwargs(body.provider, body.model, body.api_key)
     # Chat responses are free-form text — never request JSON mode for Q&A.
-    kwargs.pop("response_format", None)
+    kwargs = build_litellm_kwargs(json_mode=False)
 
     logger.info(
-        "chat.request paper_id=%s strategy_id=%s provider=%s model=%s",
+        "chat.request paper_id=%s strategy_id=%s",
         body.paper_id,
         body.strategy_id,
-        body.provider,
-        body.model,
     )
 
     try:
         answer = await complete(messages, **kwargs)
     except Exception as exc:
-        logger.error("chat.llm_error provider=%s model=%s", body.provider, body.model, exc_info=True)
+        logger.error("chat.llm_error", exc_info=True)
         raise_http(
             status.HTTP_502_BAD_GATEWAY,
             "llm_error",
-            "LLM request failed — check provider credentials and model name",
+            "Couldn't reach the local model. Make sure Ollama is running and the model is pulled.",
         )
 
     logger.info("chat.done answer_len=%d", len(answer))

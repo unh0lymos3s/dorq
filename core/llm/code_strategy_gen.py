@@ -1,4 +1,5 @@
 import json
+import logging
 
 from pydantic import ValidationError
 
@@ -7,6 +8,8 @@ from core.llm.client import build_litellm_kwargs, complete
 from core.llm.code_prompts import CODE_RETRY_PREFIX, CODE_SYSTEM_PROMPT, CODE_USER_PROMPT_TEMPLATE
 from core.models.paper import ParsedPaper
 from core.models.strategy import PortfolioConfig
+
+logger = logging.getLogger("dorq.llm.code_strategy_gen")
 
 
 def _parse_code_response(content: str) -> tuple[str, PortfolioConfig]:
@@ -26,13 +29,8 @@ def _parse_code_response(content: str) -> tuple[str, PortfolioConfig]:
     return strategy_code, portfolio_config
 
 
-async def generate_code_strategy(
-    parsed_paper: ParsedPaper,
-    provider: str,
-    model: str,
-    api_key: str,
-) -> tuple[str, PortfolioConfig]:
-    kwargs = build_litellm_kwargs(provider, model, api_key)
+async def generate_code_strategy(parsed_paper: ParsedPaper) -> tuple[str, PortfolioConfig]:
+    kwargs = build_litellm_kwargs()
     kwargs["max_tokens"] = 4096
 
     # Build user content once; sections.get with the same default is fine.
@@ -57,6 +55,10 @@ async def generate_code_strategy(
             raise  # LLM declined — do not retry
         except (json.JSONDecodeError, ValidationError, TypeError, KeyError) as exc:
             last_exc = exc
+            logger.warning(
+                "code_strategy.parse_failed attempt=%d error=%s response_preview=%r",
+                attempt, exc, content[:500],
+            )
             if attempt == 0:
                 # Swap content in-place for the retry; avoids rebuilding the list.
                 user_msg["content"] = CODE_RETRY_PREFIX + user_content

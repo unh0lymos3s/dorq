@@ -50,9 +50,6 @@ RETRY_PREFIX = (
     "with no surrounding text or markdown.\n\n"
 )
 
-# Providers that support response_format={"type": "json_object"}
-JSON_MODE_PROVIDERS = {"openai", "groq", "azure"}
-
 CHAT_SYSTEM_PROMPT = """\
 You are a quantitative research assistant helping users understand financial research papers and trading strategies.
 

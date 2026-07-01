@@ -3,12 +3,18 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Request, status
-from pydantic import BaseModel, SecretStr, model_validator
+from pydantic import BaseModel, model_validator
 
+from config import settings
 from core.backtest.data import fetch_bars
 from core.backtest.engine import run_backtest, run_backtest_from_code
 from core.backtest.metrics import extract_metrics, render_charts
-from core.errors import ERR_ALPACA_FETCH, ERR_BACKTEST_RUNTIME, ERR_INTERNAL, raise_http
+from core.errors import (
+    ERR_ALPACA_FETCH,
+    ERR_ALPACA_NOT_CONFIGURED,
+    ERR_BACKTEST_RUNTIME,
+    raise_http,
+)
 from core.models.backtest import BacktestResult
 from core.models.strategy import PortfolioConfig, StrategySpec
 
@@ -21,8 +27,6 @@ class BacktestRunBody(BaseModel):
     strategy_spec: StrategySpec | None = None
     portfolio_config: PortfolioConfig | None = None
     strategy_code: str | None = None
-    alpaca_api_key: SecretStr
-    alpaca_secret_key: SecretStr
 
     @model_validator(mode="after")
     def _check_payload(self) -> "BacktestRunBody":
@@ -35,8 +39,16 @@ class BacktestRunBody(BaseModel):
 
 @router.post("/run", response_model=BacktestResult)
 async def run_backtest_route(request: Request, body: BacktestRunBody):
-    api_key = body.alpaca_api_key.get_secret_value()
-    secret_key = body.alpaca_secret_key.get_secret_value()
+    if not settings.alpaca_configured:
+        logger.info("backtest.start blocked reason=alpaca_not_configured")
+        raise_http(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            ERR_ALPACA_NOT_CONFIGURED,
+            "Alpaca keys aren't set on the server. Add DORQ_ALPACA_API_KEY and "
+            "DORQ_ALPACA_SECRET_KEY to the environment.",
+        )
+    api_key = settings.alpaca_api_key
+    secret_key = settings.alpaca_secret_key
 
     src = body.strategy_spec if body.mode == "spec" else body.portfolio_config
     logger.info("backtest.start mode=%s assets=%s timeframe=%s", body.mode, src.assets, src.timeframe)

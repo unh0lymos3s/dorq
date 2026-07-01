@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**dorq** is a backend-only research-to-strategy backtesting platform. A user uploads a research paper PDF (or URL); the system parses it, uses an LLM to extract a tradeable strategy spec, fetches market data from Alpaca, runs a vectorbt backtest, and returns metrics + base64 chart images via a FastAPI JSON API.
+**dorq** is a research-to-strategy backtesting platform with a React frontend. A user uploads a research paper PDF (or URL); the system parses it, uses a **local Ollama model** to extract a tradeable strategy spec, fetches market data from Alpaca, runs a vectorbt backtest, and returns metrics + base64 chart images via a FastAPI JSON API. The built SPA is served from `frontend/` (source in `ui/`).
 
 ## Development Commands
 
@@ -95,23 +95,33 @@ Entry/exit condition strings use a fixed format: `<INDICATOR_COL> <op> <INDICATO
 
 Papers and backtest results are stored in `app.state.papers: dict[str, ParsedPaper]` and `app.state.backtests: dict[str, BacktestResult]`. No database for MVP.
 
-## LLM Provider Handling
+## LLM: local Ollama
 
-LiteLLM model strings follow the format `provider/model` (e.g. `openai/gpt-4o`, `anthropic/claude-sonnet-4-6`). Provider, model, and API key are passed per-request — no server-side key storage. `response_format={"type": "json_object"}` is added for providers that support JSON mode (openai, groq); others fall back to text parsing.
+The server talks to a single **local Ollama instance** — clients never send a provider, model, or key. `core/llm/client.py:build_litellm_kwargs()` builds the LiteLLM call as `ollama_chat/{model}` against `settings.ollama_base_url`, with `format="json"` for structured extraction (omitted for free-form chat via `json_mode=False`). Model and host come from `DORQ_OLLAMA_MODEL` (default `minimax-m3:cloud`) and `DORQ_OLLAMA_BASE_URL` (default `http://localhost:11434`). The default is an Ollama **cloud** model — the local ollama proxies it to ollama.com, so run `ollama signin` first. For a fully local model, `ollama pull <model>` and set `DORQ_OLLAMA_MODEL` to its tag.
 
-On invalid/unparseable JSON from the LLM, `strategy_gen.py` retries once with a stricter prompt. If both attempts fail, it raises `ValueError("llm_invalid_json")`.
+On invalid/unparseable JSON from the model, `strategy_gen.py` retries once with a stricter prompt. If both attempts fail, it raises `ValueError("llm_invalid_json")`.
+
+## Credentials (env-only)
+
+All credentials are read from the server environment via `config.Settings` (prefix `DORQ_`) — nothing is accepted from the client:
+- `DORQ_ALPACA_API_KEY` / `DORQ_ALPACA_SECRET_KEY` — market data. `settings.alpaca_configured` gates `/backtest/run`.
+- `DORQ_OLLAMA_MODEL` / `DORQ_OLLAMA_BASE_URL` — the local model.
+
+`GET /config` exposes the non-secret runtime config (`ollama_model`, `alpaca_configured`) so the UI can show status without any keys.
 
 ## Error Handling Conventions
 
-- All `HTTPException` details are plain strings — no raw stack traces in responses.
+- `raise_http(status, code, detail)` returns a `{"error": code, "detail": detail}` envelope — no raw stack traces.
 - `ValueError("docling_parse_error: ...")` → 422
 - `ValueError("llm_invalid_json")` → 422
 - `ValueError("alpaca_fetch_error: ...")` → 422
+- Alpaca keys unset → 503 `"alpaca_not_configured"`
+- Ollama unreachable on chat → 502 `"llm_error"`
 - vectorbt runtime errors → 500 with `"backtest_runtime_error"` (sanitized)
 
 ## Design Constraints (Non-Negotiable)
 
 - **No LLM-generated code execution.** The condition evaluator is a fixed parser, not `eval()` or `exec()`.
-- **No server-side key storage.** All API keys (LLM provider, Alpaca) are request-scoped only.
+- **Credentials come from the server env only** — never from the client/request body.
 - **No database.** In-memory dicts on `app.state` for MVP.
 - **Async throughout.** All blocking I/O runs in `run_in_executor`.
