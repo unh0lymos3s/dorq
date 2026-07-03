@@ -10,7 +10,7 @@ Output ONLY a valid JSON object matching this schema — no prose, no markdown c
   "timeframe": "<1D|1W|1M>",
   "date_range": ["<YYYY-MM-DD>", "<YYYY-MM-DD>"],
   "indicators": [
-    {"name": "<SMA|RSI|MACD|BB|ATR>", "params": {<key: number>}}
+    {"name": "<SMA|EMA|RSI|MACD|BB|ATR|STOCH|ADX>", "params": {<key: number>}}
   ],
   "entry_conditions": ["<INDICATOR_COL> <op> <INDICATOR_COL|number>", ...],
   "exit_conditions": ["<INDICATOR_COL> <op> <INDICATOR_COL|number>", ...],
@@ -18,17 +18,22 @@ Output ONLY a valid JSON object matching this schema — no prose, no markdown c
   "risk_params": {"stop_loss_pct": <number|null>, "take_profit_pct": <number|null>}
 }
 
-Supported indicator names and their required param keys:
-  SMA  → period (int)
-  RSI  → period (int)
-  MACD → fast (int), slow (int), signal (int)
-  BB   → period (int)
-  ATR  → period (int)
+Supported indicator names, required param keys, and the column names they produce:
+  SMA   → period (int)                        → SMA_<period>
+  EMA   → period (int)                        → EMA_<period>
+  RSI   → period (int)                        → RSI_<period>
+  MACD  → fast (int), slow (int), signal (int) → MACD_<f>_<s>_<sig>, MACDs_<f>_<s>_<sig>
+  BB    → period (int)                        → BBU_<period>, BBM_<period>, BBL_<period>
+  ATR   → period (int)                        → ATR_<period>
+  STOCH → k (int), d (int)                    → STOCHK_<k>_<d>, STOCHD_<k>_<d>
+  ADX   → period (int)                        → ADX_<period>, DMP_<period>, DMN_<period>
 
 Condition strings must follow: <INDICATOR_COL> <op> <INDICATOR_COL|number>
-  INDICATOR_COL examples: SMA_20, RSI_14, MACD_12_26_9, close
+  INDICATOR_COL examples: SMA_20, EMA_50, RSI_14, MACD_12_26_9, STOCHK_14_3, close
+  Raw price columns are always available: open, high, low, close
   Operators: > < >= <= ==
-  Multiple conditions joined with AND
+  Combine with AND / OR (AND binds tighter than OR)
+  Entries in the conditions array are AND-joined with each other
 
 Always produce a strategy — do not decline. Most papers describe a market
 thesis (a directional bias, an event effect, a premium, an anomaly) even when

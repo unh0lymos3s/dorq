@@ -13,6 +13,7 @@ _CONDITION_RE = re.compile(
 _TIMEFRAME_FREQ = {"1D": "D", "1W": "W", "1M": "ME"}
 
 _AND_RE = re.compile(r"\bAND\b", re.IGNORECASE)
+_OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
 
 
 def _compute_indicators(df: pd.DataFrame, spec: StrategySpec) -> dict[str, pd.Series]:
@@ -30,6 +31,9 @@ def _compute_indicators(df: pd.DataFrame, spec: StrategySpec) -> dict[str, pd.Se
         if name == "SMA":
             period = int(p["period"])
             signals[f"SMA_{period}"] = df.ta.sma(length=period)
+        elif name == "EMA":
+            period = int(p["period"])
+            signals[f"EMA_{period}"] = df.ta.ema(length=period)
         elif name == "RSI":
             period = int(p["period"])
             signals[f"RSI_{period}"] = df.ta.rsi(length=period)
@@ -47,6 +51,20 @@ def _compute_indicators(df: pd.DataFrame, spec: StrategySpec) -> dict[str, pd.Se
         elif name == "ATR":
             period = int(p["period"])
             signals[f"ATR_{period}"] = df.ta.atr(length=period)
+        elif name == "STOCH":
+            k, d = int(p["k"]), int(p["d"])
+            stoch = df.ta.stoch(k=k, d=d)
+            # pandas_ta suffixes the smoothing window (default 3); expose the
+            # stable STOCHK_k_d / STOCHD_k_d names the prompt advertises.
+            signals[f"STOCHK_{k}_{d}"] = stoch[f"STOCHk_{k}_{d}_3"]
+            signals[f"STOCHD_{k}_{d}"] = stoch[f"STOCHd_{k}_{d}_3"]
+        elif name == "ADX":
+            period = int(p["period"])
+            adx = df.ta.adx(length=period)
+            signals[f"ADX_{period}"] = adx[f"ADX_{period}"]
+            # Directional movement lines, for trend-direction conditions.
+            signals[f"DMP_{period}"] = adx[f"DMP_{period}"]
+            signals[f"DMN_{period}"] = adx[f"DMN_{period}"]
         else:
             raise ValueError(f"unsupported indicator: {name!r}")
 
@@ -83,12 +101,31 @@ def _eval_condition(condition: str, signals: dict[str, pd.Series]) -> pd.Series:
     return ops[op](left, right)
 
 
+def _eval_expr(raw: str, signals: dict[str, pd.Series]) -> pd.Series:
+    """Evaluate one condition string. AND binds tighter than OR, so
+    ``A > B AND C < 30 OR D > E`` reads as ``(A>B AND C<30) OR (D>E)``.
+    Still a fixed three-token parser underneath — no eval().
+    """
+    or_result: pd.Series | None = None
+    for or_part in _OR_RE.split(raw):
+        and_parts = [t.strip() for t in _AND_RE.split(or_part) if t.strip()]
+        if not and_parts:
+            raise ValueError(f"unparseable condition: {raw!r}")
+        and_result = _eval_condition(and_parts[0], signals)
+        for part in and_parts[1:]:
+            and_result = and_result & _eval_condition(part, signals)
+        or_result = and_result if or_result is None else or_result | and_result
+    return or_result
+
+
 def _combine_conditions(conditions: list[str], signals: dict[str, pd.Series]) -> pd.Series:
-    """AND-join all condition tokens across all entries. Only AND is supported."""
-    parts = [token.strip() for raw in conditions for token in _AND_RE.split(raw) if token.strip()]
-    result = _eval_condition(parts[0], signals)
-    for part in parts[1:]:
-        result = result & _eval_condition(part, signals)
+    """AND-join across list entries; each entry may use AND/OR internally."""
+    stripped = [raw for raw in conditions if raw.strip()]
+    if not stripped:
+        raise ValueError("strategy has no entry/exit conditions")
+    result = _eval_expr(stripped[0], signals)
+    for raw in stripped[1:]:
+        result = result & _eval_expr(raw, signals)
     return result.fillna(False)
 
 

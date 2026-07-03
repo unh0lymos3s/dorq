@@ -103,6 +103,47 @@ async def test_unparseable_condition_raises():
         await run_backtest(bad_spec, bars)
 
 
+async def test_new_indicators_compute_and_backtest():
+    from core.backtest.engine import run_backtest
+    spec = SMA_CROSSOVER_SPEC.model_copy(update={
+        "indicators": [
+            IndicatorDef(name="EMA", params={"period": 20}),
+            IndicatorDef(name="STOCH", params={"k": 14, "d": 3}),
+            IndicatorDef(name="ADX", params={"period": 14}),
+        ],
+        "entry_conditions": ["close > EMA_20 AND ADX_14 > 20"],
+        "exit_conditions": ["STOCHK_14_3 > 80 OR close < EMA_20"],
+    })
+    bars = _make_bars()
+    portfolio = await run_backtest(spec, bars)
+    assert portfolio is not None
+
+
+def test_or_condition_precedence():
+    from core.backtest.engine import _combine_conditions
+
+    idx = pd.date_range("2020-01-01", periods=4, freq="D")
+    signals = {
+        "A": pd.Series([1.0, 1.0, 0.0, 0.0], index=idx),
+        "B": pd.Series([1.0, 0.0, 1.0, 0.0], index=idx),
+    }
+    # (A > 0.5 AND B > 0.5) OR B < 0.5 → [T, T, F, T]
+    out = _combine_conditions(["A > 0.5 AND B > 0.5 OR B < 0.5"], signals)
+    assert list(out) == [True, True, False, True]
+
+    # List entries are AND-joined: (A > 0.5) AND (B > 0.5) → [T, F, F, F]
+    out = _combine_conditions(["A > 0.5", "B > 0.5"], signals)
+    assert list(out) == [True, False, False, False]
+
+
+def test_empty_conditions_raise():
+    from core.backtest.engine import _combine_conditions
+    with pytest.raises(ValueError, match="no entry/exit conditions"):
+        _combine_conditions([], {})
+    with pytest.raises(ValueError, match="no entry/exit conditions"):
+        _combine_conditions(["  "], {})
+
+
 async def test_percent_equity_position_sizing():
     from core.backtest.engine import run_backtest
     spec = SMA_CROSSOVER_SPEC.model_copy(update={"position_sizing": "percent_equity"})
