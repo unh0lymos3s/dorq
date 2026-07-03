@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { StrategySpec, PortfolioConfig, BacktestResult, RunEntry, ServerConfig } from './types'
 import Dither from './components/Dither'
+import BackgroundBoundary from './components/BackgroundBoundary'
 import Step1Paper from './steps/Step1Paper'
 import Step2Strategy from './steps/Step2Strategy'
 import Step3Backtest from './steps/Step3Backtest'
@@ -110,15 +111,17 @@ export default function App() {
   return (
     <>
       <div className="dither-bg" aria-hidden="true">
-        <Dither
-          waveColor={[0.5, 0.5, 0.5]}
-          enableMouseInteraction
-          mouseRadius={0.3}
-          colorNum={4}
-          waveAmplitude={0.3}
-          waveFrequency={3}
-          waveSpeed={0.05}
-        />
+        <BackgroundBoundary>
+          <Dither
+            waveColor={[0.5, 0.5, 0.5]}
+            enableMouseInteraction
+            mouseRadius={0.3}
+            colorNum={4}
+            waveAmplitude={0.3}
+            waveFrequency={3}
+            waveSpeed={0.05}
+          />
+        </BackgroundBoundary>
       </div>
       <div className="app">
         <header className="topbar">
