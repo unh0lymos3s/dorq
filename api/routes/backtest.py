@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from typing import Literal
@@ -8,7 +9,7 @@ from pydantic import BaseModel, model_validator
 from config import settings
 from core.backtest.data import fetch_bars
 from core.backtest.engine import run_backtest, run_backtest_from_code
-from core.backtest.metrics import extract_metrics, extract_price_series, extract_trades, render_charts
+from core.backtest.metrics import build_analytics, extract_price_series, render_charts
 from core.errors import (
     ERR_ALPACA_FETCH,
     ERR_ALPACA_NOT_CONFIGURED,
@@ -82,25 +83,26 @@ async def run_backtest_route(request: Request, body: BacktestRunBody):
         logger.error("backtest.run error mode=%s", body.mode, exc_info=True)
         raise_http(status.HTTP_500_INTERNAL_SERVER_ERROR, ERR_BACKTEST_RUNTIME, "backtest_runtime_error")
 
-    metrics = extract_metrics(portfolio, price_data=bars)
-    charts = render_charts(portfolio)
-    price_series = extract_price_series(bars)
-    trades = extract_trades(portfolio)
+    # Analytics and chart rendering are blocking pandas/plotly work — keep
+    # them off the event loop like every other heavy call in this route.
+    loop = asyncio.get_running_loop()
+    analytics = await loop.run_in_executor(None, build_analytics, portfolio, bars, src.init_cash)
+    charts = await loop.run_in_executor(None, render_charts, portfolio)
+    price_series = await loop.run_in_executor(None, extract_price_series, bars)
 
     # Attach strategy_spec only for spec-mode runs (code-mode has no StrategySpec).
     saved_spec: StrategySpec | None = body.strategy_spec if body.mode == "spec" else None
 
     result = BacktestResult(
         backtest_id=str(uuid.uuid4()),
-        metrics=metrics,
         charts=charts,
         strategy_spec=saved_spec,
         price_series=price_series,
-        trades=trades,
+        **analytics,
     )
     await request.app.state.backtests.put(result.backtest_id, result)
     logger.info("backtest.done backtest_id=%s total_return=%s num_trades=%s",
-                result.backtest_id, metrics.get("total_return"), metrics.get("num_trades"))
+                result.backtest_id, result.metrics.get("total_return"), result.metrics.get("num_trades"))
     return result
 
 

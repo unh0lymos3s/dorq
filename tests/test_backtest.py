@@ -111,6 +111,80 @@ async def test_percent_equity_position_sizing():
     assert portfolio is not None
 
 
+async def test_build_analytics_curves_and_trade_stats():
+    from core.backtest.engine import run_backtest
+    from core.backtest.metrics import build_analytics
+
+    bars = _make_bars()
+    portfolio = await run_backtest(SMA_CROSSOVER_SPEC, bars)
+    analytics = build_analytics(portfolio, bars, init_cash=100_000.0)
+
+    # Equity curve starts at init_cash and has one point per bar.
+    equity = analytics["equity_curve"]
+    assert len(equity) == len(bars["SPY"])
+    assert equity[0]["v"] == pytest.approx(100_000.0)
+
+    # Benchmark is buy-and-hold: first point == init_cash, last point matches
+    # the raw price move of the single asset.
+    bench = analytics["benchmark_curve"]
+    close = bars["SPY"]["close"]
+    assert bench[0]["v"] == pytest.approx(100_000.0)
+    assert bench[-1]["v"] == pytest.approx(100_000.0 * close.iloc[-1] / close.iloc[0], rel=1e-6)
+    assert analytics["metrics"]["benchmark_return"] == pytest.approx(
+        (close.iloc[-1] / close.iloc[0] - 1) * 100, abs=0.01
+    )
+
+    # Drawdown is 0 at the running peak and never positive.
+    dd_values = [p["v"] for p in analytics["drawdown_curve"]]
+    assert max(dd_values) == pytest.approx(0.0)
+    assert min(dd_values) <= 0.0
+
+    # Trade stats exist whenever there are closed trades.
+    if any(t["status"] == "closed" for t in analytics["trades"]):
+        assert analytics["metrics"]["best_trade_pct"] is not None
+        assert analytics["metrics"]["worst_trade_pct"] is not None
+
+
+def test_trade_stats_profit_factor():
+    from core.backtest.metrics import _trade_stats
+
+    trades = [
+        {"status": "closed", "pnl": 200.0, "return_pct": 2.0},
+        {"status": "closed", "pnl": -100.0, "return_pct": -1.0},
+        {"status": "closed", "pnl": 100.0, "return_pct": 1.0},
+        {"status": "open", "pnl": None, "return_pct": None},
+    ]
+    stats = _trade_stats(trades)
+    assert stats["profit_factor"] == pytest.approx(3.0)
+    assert stats["avg_win_pct"] == pytest.approx(1.5)
+    assert stats["avg_loss_pct"] == pytest.approx(-1.0)
+    assert stats["best_trade_pct"] == pytest.approx(2.0)
+    assert stats["worst_trade_pct"] == pytest.approx(-1.0)
+
+
+def test_trade_stats_empty():
+    from core.backtest.metrics import _trade_stats
+
+    stats = _trade_stats([])
+    assert all(v is None for v in stats.values())
+
+
+def test_benchmark_curve_multi_asset_equal_weight():
+    from core.backtest.metrics import compute_benchmark_curve
+
+    idx = pd.date_range("2020-01-01", periods=3, freq="D")
+    bars = {
+        # +10% over the window
+        "AAA": pd.DataFrame({"close": [100.0, 105.0, 110.0]}, index=idx),
+        # -10% over the window
+        "BBB": pd.DataFrame({"close": [50.0, 47.5, 45.0]}, index=idx),
+    }
+    curve = compute_benchmark_curve(bars, init_cash=10_000.0)
+    assert curve[0]["v"] == pytest.approx(10_000.0)
+    # Equal weight: (1.10 + 0.90) / 2 = 1.0 → flat overall
+    assert curve[-1]["v"] == pytest.approx(10_000.0)
+
+
 # ---------------------------------------------------------------------------
 # Integration — requires live Alpaca credentials + DORQ_RUN_INTEGRATION=1
 # ---------------------------------------------------------------------------
