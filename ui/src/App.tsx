@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { StrategySpec, PortfolioConfig, BacktestResult, ServerConfig } from './types'
+import type { StrategySpec, PortfolioConfig, BacktestResult, RunEntry, ServerConfig } from './types'
 import Dither from './components/Dither'
 import Step1Paper from './steps/Step1Paper'
 import Step2Strategy from './steps/Step2Strategy'
@@ -18,6 +18,11 @@ const MOON = (
   </svg>
 )
 
+function runLabel(result: BacktestResult): string {
+  const assets = Object.keys(result.price_series ?? {})
+  return assets.length ? assets.slice(0, 3).join(' ') : new Date().toLocaleTimeString()
+}
+
 export default function App() {
   // Dark-first: honour a stored choice, otherwise default to dark.
   const [light, setLight] = useState(() => {
@@ -32,7 +37,16 @@ export default function App() {
   const [strategySpec, setStrategySpec] = useState<StrategySpec | null>(null)
   const [portfolioConfig, setPortfolioConfig] = useState<PortfolioConfig | null>(null)
   const [strategyCode, setStrategyCode] = useState<string | null>(null)
-  const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null)
+
+  // Every completed backtest in this session; the user flips between them
+  // in the results step to compare parameter tweaks. Kept as one object so
+  // appending a run and selecting it is a single atomic update.
+  const [runState, setRunState] = useState<{ runs: RunEntry[]; active: number }>({ runs: [], active: 0 })
+  const { runs, active: activeRun } = runState
+  const backtestResult = runs[activeRun]?.result ?? null
+
+  // Remounting the pipeline via `key` resets all step-local state at once.
+  const [sessionKey, setSessionKey] = useState(0)
 
   useEffect(() => {
     document.documentElement.classList.toggle('light', light)
@@ -50,6 +64,16 @@ export default function App() {
 
   const toggleTheme = useCallback(() => setLight(v => !v), [])
 
+  const handleReset = useCallback(() => {
+    setPaperId(null)
+    setStrategySpec(null)
+    setPortfolioConfig(null)
+    setStrategyCode(null)
+    setStrategyMode('spec')
+    setRunState({ runs: [], active: 0 })
+    setSessionKey(k => k + 1)
+  }, [])
+
   const handleStep1Done = useCallback((id: string) => setPaperId(id), [])
 
   const handleStep2Done = useCallback((
@@ -64,7 +88,16 @@ export default function App() {
     setStrategyCode(code)
   }, [])
 
-  const handleStep3Done = useCallback((result: BacktestResult) => setBacktestResult(result), [])
+  const handleStep3Done = useCallback((result: BacktestResult) => {
+    setRunState(prev => {
+      const next = [...prev.runs, { result, label: runLabel(result), at: Date.now() }]
+      return { runs: next, active: next.length - 1 }
+    })
+  }, [])
+
+  const handleSelectRun = useCallback((idx: number) => {
+    setRunState(prev => ({ ...prev, active: idx }))
+  }, [])
 
   const hasStrategy = strategySpec !== null || strategyCode !== null
 
@@ -97,6 +130,11 @@ export default function App() {
                 {config.ollama_model} · ollama
               </span>
             )}
+            {paperId && (
+              <button className="icon-btn text-btn" onClick={handleReset} title="Start over with a new paper">
+                new paper
+              </button>
+            )}
             <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
               {light ? MOON : SUN}
             </button>
@@ -104,7 +142,7 @@ export default function App() {
         </header>
 
         <main className="stage-wrap">
-          <div className="pipeline">
+          <div className="pipeline" key={sessionKey}>
             <Step1Paper state={s1} onDone={handleStep1Done} />
             <Step2Strategy
               state={s2}
@@ -118,9 +156,17 @@ export default function App() {
               portfolioConfig={portfolioConfig}
               strategyCode={strategyCode}
               alpacaConfigured={config?.alpaca_configured ?? true}
+              runCount={runs.length}
               onDone={handleStep3Done}
             />
-            <Step4Results state={s4} result={backtestResult} />
+            <Step4Results
+              state={s4}
+              result={backtestResult}
+              runs={runs}
+              activeRun={activeRun}
+              onSelectRun={handleSelectRun}
+              paperId={paperId}
+            />
           </div>
         </main>
       </div>

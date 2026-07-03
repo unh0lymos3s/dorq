@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { StrategySpec, PortfolioConfig, BacktestResult, RiskParams } from '../types'
 import { friendlyError } from '../apiError'
-import Stage, { Dots, type StageState } from '../components/Stage'
+import Stage, { Working, type StageState } from '../components/Stage'
 
 interface Props {
   state: StageState
@@ -10,6 +10,7 @@ interface Props {
   portfolioConfig: PortfolioConfig | null
   strategyCode: string | null
   alpacaConfigured: boolean
+  runCount: number
   onDone: (result: BacktestResult) => void
 }
 
@@ -46,24 +47,31 @@ function toEditable(source: SourceLike): EditableParams {
   }
 }
 
-function formatReturn(raw: number): string {
-  const v = raw * 100
-  return v >= 0 ? `+${v.toFixed(2)}%` : `−${(-v).toFixed(2)}%`
+function formatReturn(pct: number): string {
+  return pct >= 0 ? `+${pct.toFixed(2)}%` : `−${(-pct).toFixed(2)}%`
 }
 
 export default function Step3Backtest({
-  state, mode, strategySpec, portfolioConfig, strategyCode, alpacaConfigured, onDone,
+  state, mode, strategySpec, portfolioConfig, strategyCode, alpacaConfigured, runCount, onDone,
 }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BacktestResult | null>(null)
+  const [editing, setEditing] = useState(false)
 
   const source = mode === 'spec' ? strategySpec : portfolioConfig
   const [params, setParams] = useState<EditableParams | null>(null)
 
+  // Re-derive editable params only when the *portfolio-relevant* fields of the
+  // source change — condition edits in step 2 rebuild the spec object on every
+  // keystroke and must not wipe the user's customizations here.
+  const sourceFingerprint = source
+    ? JSON.stringify([source.assets, source.timeframe, source.date_range,
+                      source.position_sizing, source.risk_params, source.init_cash])
+    : null
   useEffect(() => {
     if (source) setParams(toEditable(source))
-  }, [source])
+  }, [sourceFingerprint]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const update = useCallback(<K extends keyof EditableParams>(key: K, value: EditableParams[K]) => {
     setParams(p => (p ? { ...p, [key]: value } : p))
@@ -108,6 +116,7 @@ export default function Step3Backtest({
       if (!res.ok) throw await friendlyError(res)
       const data: BacktestResult = await res.json()
       setResult(data)
+      setEditing(false)
       onDone(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error')
@@ -121,19 +130,22 @@ export default function Step3Backtest({
   if (result) {
     const tr = result.metrics['total_return']
     if (typeof tr === 'number') {
-      badge = formatReturn(tr)
+      badge = runCount > 1 ? `run ${runCount} · ${formatReturn(tr)}` : formatReturn(tr)
       badgeTone = tr >= 0 ? 'pos' : 'neg'
     } else {
       badge = result.backtest_id
     }
   }
 
+  const showForm = params && ((state === 'active' && !result) || editing)
+
   return (
     <Stage n={3} title="Run backtest" state={state} badge={badge} badgeTone={badgeTone}>
-      {state === 'active' && !result && params && (
+      {showForm && (
         <div className="card-body">
           <div className="context">
             <span className="chip">mode <b>{mode}</b></span>
+            {runCount > 0 && <span className="chip">runs so far <b>{runCount}</b></span>}
           </div>
 
           <div className="param-grid">
@@ -186,7 +198,7 @@ export default function Step3Backtest({
 
           {alpacaConfigured ? (
             <button className="btn" onClick={handleRun} disabled={loading || !canRun}>
-              {loading ? <Dots /> : 'Run backtest'}
+              {loading ? <Working label="fetching data & simulating" /> : result ? 'Re-run backtest' : 'Run backtest'}
             </button>
           ) : (
             <div className="banner">
@@ -202,12 +214,16 @@ export default function Step3Backtest({
         </div>
       )}
 
-      {result && (
+      {result && !editing && (
         <div className="card-foot">
           <div className="kv">
             <div className="kv-row"><span className="kv-k">backtest_id</span><span className="kv-v">{result.backtest_id}</span></div>
             {params && <div className="kv-row"><span className="kv-k">assets</span><span className="kv-v">{params.assetsText}</span></div>}
+            {params && <div className="kv-row"><span className="kv-k">range</span><span className="kv-v">{params.startDate} → {params.endDate}</span></div>}
           </div>
+          <button className="btn btn-ghost" onClick={() => setEditing(true)}>
+            Adjust parameters &amp; re-run
+          </button>
         </div>
       )}
     </Stage>

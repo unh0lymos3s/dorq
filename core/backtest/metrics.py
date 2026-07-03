@@ -8,12 +8,9 @@ Unit conventions (mirrored by the UI):
     (e.g. ``12.34`` means 12.34%).
   - Ratios (sharpe, sortino, calmar, profit_factor) → plain floats.
 """
-import base64
-import io
 import logging
 
 import pandas as pd
-import plotly.io as pio
 
 logger = logging.getLogger(__name__)
 
@@ -245,18 +242,3 @@ def extract_trades(portfolio) -> list[dict]:
         except Exception:
             logger.exception("extract_trades: skipping unreadable trade row")
     return trades
-
-
-# ---------------------------------------------------------------------------
-# Static charts (vectorbt's own plot, PNG via kaleido)
-# ---------------------------------------------------------------------------
-
-def render_charts(portfolio) -> list[str]:
-    charts = []
-    try:
-        fig = portfolio.plot()
-        png_bytes = pio.to_image(fig, format="png")
-        charts.append(base64.b64encode(png_bytes).decode())
-    except Exception:
-        logger.exception("chart rendering failed")
-    return charts

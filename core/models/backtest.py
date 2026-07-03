@@ -32,7 +32,6 @@ class BacktestResult(BaseModel):
     backtest_id: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metrics: dict[str, float | int | str | None]
-    charts: list[str]
     strategy_spec: StrategySpec | None = None
     price_series: dict[str, list[PricePoint]] = {}
     trades: list[TradeMarker] = []

@@ -234,7 +234,7 @@ def test_benchmark_curve_multi_asset_equal_weight():
 async def test_integration_sma_crossover():
     from core.backtest.data import fetch_bars
     from core.backtest.engine import run_backtest
-    from core.backtest.metrics import extract_metrics, render_charts
+    from core.backtest.metrics import extract_metrics
 
     api_key = os.environ["ALPACA_API_KEY"]
     secret_key = os.environ["ALPACA_SECRET_KEY"]
@@ -253,7 +253,3 @@ async def test_integration_sma_crossover():
     portfolio = await run_backtest(SMA_CROSSOVER_SPEC, bars)
     metrics = extract_metrics(portfolio)
     assert isinstance(metrics["total_return"], float)
-
-    charts = render_charts(portfolio)
-    assert len(charts) >= 1
-    assert len(charts[0]) > 0

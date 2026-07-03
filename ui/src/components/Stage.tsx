@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { MouseEvent, ReactNode } from 'react'
 
 export type StageState = 'idle' | 'active' | 'done'
@@ -52,3 +53,26 @@ export const Dots = () => (
     <i /><i /><i />
   </span>
 )
+
+/**
+ * Loading dots plus a running elapsed-seconds counter — local model calls can
+ * take minutes, so the user needs to see that time is passing, not a stall.
+ */
+export function Working({ label }: { label?: string }) {
+  const [seconds, setSeconds] = useState(0)
+  useEffect(() => {
+    const started = Date.now()
+    const id = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+  const mm = Math.floor(seconds / 60)
+  const ss = seconds % 60
+  return (
+    <span className="working">
+      <Dots />
+      <span className="working-time">
+        {label ? `${label} · ` : ''}{mm > 0 ? `${mm}m ${ss}s` : `${ss}s`}
+      </span>
+    </span>
+  )
+}
