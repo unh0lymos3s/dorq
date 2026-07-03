@@ -1,6 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import type { BacktestResult } from '../types'
 import Stage, { type StageState } from '../components/Stage'
+import TradeChart from '../components/TradeChart'
 
 interface Props {
   state: StageState
@@ -14,11 +15,11 @@ const META: Record<string, Meta> = {
   sharpe_ratio: { label: 'Sharpe', kind: Kind.Ratio },
   max_drawdown: { label: 'Max drawdown', kind: Kind.Percent },
   win_rate: { label: 'Win rate', kind: Kind.Percent },
-  total_trades: { label: 'Trades', kind: Kind.Integer },
+  num_trades: { label: 'Trades', kind: Kind.Integer },
   calmar_ratio: { label: 'Calmar', kind: Kind.Ratio },
   volatility: { label: 'Volatility', kind: Kind.Percent },
 }
-const GRID_KEYS = ['sharpe_ratio', 'max_drawdown', 'win_rate', 'total_trades', 'calmar_ratio', 'volatility'] as const
+const GRID_KEYS = ['sharpe_ratio', 'max_drawdown', 'win_rate', 'num_trades', 'calmar_ratio', 'volatility'] as const
 
 function formatValue(meta: Meta, raw: number | string | null | undefined): string {
   if (raw == null) return '—'
@@ -49,6 +50,15 @@ export default function Step4Results({ state, result }: Props) {
     return result.charts.map(b64 => `data:image/png;base64,${b64}`)
   }, [result?.charts])
 
+  const assets = useMemo(() => Object.keys(result?.price_series ?? {}), [result?.price_series])
+  const [activeAsset, setActiveAsset] = useState<string | null>(null)
+  const selectedAsset = activeAsset && assets.includes(activeAsset) ? activeAsset : assets[0]
+  const assetSeries = selectedAsset ? result?.price_series?.[selectedAsset] ?? [] : []
+  const assetTrades = useMemo(
+    () => (result?.trades ?? []).filter(t => t.asset === selectedAsset),
+    [result?.trades, selectedAsset],
+  )
+
   return (
     <Stage n={4} title="Results" state={state} badge={result?.backtest_id} last>
       {result ? (
@@ -68,6 +78,26 @@ export default function Step4Results({ state, result }: Props) {
               </div>
             ))}
           </div>
+
+          {assets.length > 0 && (
+            <>
+              <span className="section-label">Market &amp; trades</span>
+              {assets.length > 1 && (
+                <div className="tabs" role="tablist">
+                  {assets.map(sym => (
+                    <button
+                      key={sym}
+                      className={`tab${sym === selectedAsset ? ' is-on' : ''}`}
+                      onClick={() => setActiveAsset(sym)}
+                    >
+                      {sym}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <TradeChart series={assetSeries} trades={assetTrades} />
+            </>
+          )}
 
           {chartSources && (
             <>

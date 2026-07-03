@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react'
-import type { StrategySpec, PortfolioConfig, BacktestResult } from '../types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { StrategySpec, PortfolioConfig, BacktestResult, RiskParams } from '../types'
 import { friendlyError } from '../apiError'
 import Stage, { Dots, type StageState } from '../components/Stage'
 
@@ -11,6 +11,39 @@ interface Props {
   strategyCode: string | null
   alpacaConfigured: boolean
   onDone: (result: BacktestResult) => void
+}
+
+interface EditableParams {
+  assetsText: string
+  timeframe: string
+  startDate: string
+  endDate: string
+  positionSizing: string
+  stopLoss: string
+  takeProfit: string
+  initCash: string
+}
+
+interface SourceLike {
+  assets: string[]
+  timeframe: string
+  date_range: [string, string]
+  position_sizing: string
+  risk_params: RiskParams
+  init_cash: number
+}
+
+function toEditable(source: SourceLike): EditableParams {
+  return {
+    assetsText: source.assets.join(', '),
+    timeframe: source.timeframe,
+    startDate: source.date_range[0],
+    endDate: source.date_range[1],
+    positionSizing: source.position_sizing,
+    stopLoss: source.risk_params.stop_loss_pct != null ? String(source.risk_params.stop_loss_pct) : '',
+    takeProfit: source.risk_params.take_profit_pct != null ? String(source.risk_params.take_profit_pct) : '',
+    initCash: String(source.init_cash),
+  }
 }
 
 function formatReturn(raw: number): string {
@@ -26,19 +59,46 @@ export default function Step3Backtest({
   const [result, setResult] = useState<BacktestResult | null>(null)
 
   const source = mode === 'spec' ? strategySpec : portfolioConfig
-  const assets = source?.assets ?? null
-  const timeframe = source?.timeframe ?? ''
+  const [params, setParams] = useState<EditableParams | null>(null)
+
+  useEffect(() => {
+    if (source) setParams(toEditable(source))
+  }, [source])
+
+  const update = useCallback(<K extends keyof EditableParams>(key: K, value: EditableParams[K]) => {
+    setParams(p => (p ? { ...p, [key]: value } : p))
+  }, [])
+
+  const assetsList = useMemo(
+    () => (params?.assetsText ?? '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean),
+    [params?.assetsText],
+  )
+  const datesValid = !!params && params.startDate !== '' && params.endDate !== '' && params.startDate < params.endDate
+  const canRun = !!params && assetsList.length > 0 && datesValid
 
   const handleRun = useCallback(async () => {
+    if (!source || !params || !canRun) return
     setError(null)
     setLoading(true)
     try {
+      const overrides = {
+        assets: assetsList,
+        timeframe: params.timeframe,
+        date_range: [params.startDate, params.endDate] as [string, string],
+        position_sizing: params.positionSizing,
+        risk_params: {
+          stop_loss_pct: params.stopLoss.trim() === '' ? null : Number(params.stopLoss),
+          take_profit_pct: params.takeProfit.trim() === '' ? null : Number(params.takeProfit),
+        },
+        init_cash: Number(params.initCash) > 0 ? Number(params.initCash) : 100_000,
+      }
+
       const body: Record<string, unknown> = { mode }
       if (mode === 'spec') {
-        body.strategy_spec = strategySpec
+        body.strategy_spec = { ...strategySpec, ...overrides }
       } else {
         body.strategy_code = strategyCode
-        body.portfolio_config = portfolioConfig
+        body.portfolio_config = { ...portfolioConfig, ...overrides }
       }
       const res = await fetch('/backtest/run', {
         method: 'POST',
@@ -54,7 +114,7 @@ export default function Step3Backtest({
     } finally {
       setLoading(false)
     }
-  }, [mode, strategySpec, strategyCode, portfolioConfig, onDone])
+  }, [mode, strategySpec, strategyCode, portfolioConfig, source, params, canRun, assetsList, onDone])
 
   let badge: string | undefined
   let badgeTone: 'neutral' | 'pos' | 'neg' = 'neutral'
@@ -70,16 +130,62 @@ export default function Step3Backtest({
 
   return (
     <Stage n={3} title="Run backtest" state={state} badge={badge} badgeTone={badgeTone}>
-      {state === 'active' && !result && (
+      {state === 'active' && !result && params && (
         <div className="card-body">
           <div className="context">
             <span className="chip">mode <b>{mode}</b></span>
-            {assets && assets.length > 0 && <span className="chip">assets <b>{assets.join(', ')}</b></span>}
-            {timeframe && <span className="chip">timeframe <b>{timeframe}</b></span>}
+          </div>
+
+          <div className="param-grid">
+            <label className="field">
+              <span className="field-label">Assets</span>
+              <input
+                className="input"
+                value={params.assetsText}
+                onChange={e => update('assetsText', e.target.value)}
+                placeholder="SPY, TLT"
+              />
+            </label>
+            <label className="field">
+              <span className="field-label">Timeframe</span>
+              <select className="input" value={params.timeframe} onChange={e => update('timeframe', e.target.value)}>
+                <option value="1D">1D</option>
+                <option value="1W">1W</option>
+                <option value="1M">1M</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Start date</span>
+              <input className="input" type="date" value={params.startDate} onChange={e => update('startDate', e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field-label">End date</span>
+              <input className="input" type="date" value={params.endDate} onChange={e => update('endDate', e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field-label">Position sizing</span>
+              <select className="input" value={params.positionSizing} onChange={e => update('positionSizing', e.target.value)}>
+                <option value="equal_weight">equal_weight</option>
+                <option value="fixed">fixed</option>
+                <option value="percent_equity">percent_equity</option>
+              </select>
+            </label>
+            <label className="field">
+              <span className="field-label">Initial cash</span>
+              <input className="input" type="number" min={1} value={params.initCash} onChange={e => update('initCash', e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field-label">Stop loss %</span>
+              <input className="input" type="number" step="0.1" placeholder="none" value={params.stopLoss} onChange={e => update('stopLoss', e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field-label">Take profit %</span>
+              <input className="input" type="number" step="0.1" placeholder="none" value={params.takeProfit} onChange={e => update('takeProfit', e.target.value)} />
+            </label>
           </div>
 
           {alpacaConfigured ? (
-            <button className="btn" onClick={handleRun} disabled={loading}>
+            <button className="btn" onClick={handleRun} disabled={loading || !canRun}>
               {loading ? <Dots /> : 'Run backtest'}
             </button>
           ) : (
@@ -91,6 +197,7 @@ export default function Step3Backtest({
               </span>
             </div>
           )}
+          {!canRun && <p className="note">Enter at least one asset and a valid date range to run.</p>}
           {error && <p className="error">{error}</p>}
         </div>
       )}
@@ -99,7 +206,7 @@ export default function Step3Backtest({
         <div className="card-foot">
           <div className="kv">
             <div className="kv-row"><span className="kv-k">backtest_id</span><span className="kv-v">{result.backtest_id}</span></div>
-            {assets && <div className="kv-row"><span className="kv-k">assets</span><span className="kv-v">{assets.join(', ')}</span></div>}
+            {params && <div className="kv-row"><span className="kv-k">assets</span><span className="kv-v">{params.assetsText}</span></div>}
           </div>
         </div>
       )}

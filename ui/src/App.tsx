@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { StrategySpec, PortfolioConfig, BacktestResult, ServerConfig } from './types'
+import Dither from './components/Dither'
 import Step1Paper from './steps/Step1Paper'
 import Step2Strategy from './steps/Step2Strategy'
 import Step3Backtest from './steps/Step3Backtest'
@@ -74,55 +75,55 @@ export default function App() {
   const s4: 'idle' | 'active' | 'done' = backtestResult ? 'active' : 'idle'
 
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="brand"><span className="brand-mark" />dorq</div>
-        <nav className="crumbs" aria-label="Pipeline">
-          <b>Research</b><span className="sep">→</span><b>Strategy</b><span className="sep">→</span><b>Backtest</b>
-        </nav>
-        <div className="topbar-right">
-          {config && (
-            <span className="status-pill" title="Local model serving this app">
-              <span className={`dot${config.alpaca_configured ? '' : ' off'}`} />
-              {config.ollama_model} · ollama
-            </span>
-          )}
-          <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
-            {light ? MOON : SUN}
-          </button>
-        </div>
-      </header>
+    <>
+      <div className="dither-bg" aria-hidden="true">
+        <Dither
+          waveColor={[0.5, 0.5, 0.5]}
+          enableMouseInteraction
+          mouseRadius={0.3}
+          colorNum={4}
+          waveAmplitude={0.3}
+          waveFrequency={3}
+          waveSpeed={0.05}
+        />
+      </div>
+      <div className="app">
+        <header className="topbar">
+          <div className="brand">dorq</div>
+          <div className="topbar-right">
+            {config && (
+              <span className="status-pill" title="Local model serving this app">
+                <span className={`dot${config.alpaca_configured ? '' : ' off'}`} />
+                {config.ollama_model} · ollama
+              </span>
+            )}
+            <button className="icon-btn" onClick={toggleTheme} aria-label="Toggle theme">
+              {light ? MOON : SUN}
+            </button>
+          </div>
+        </header>
 
-      <main className="stage-wrap">
-        <section className="hero">
-          <div className="eyebrow">Research → Strategy → Backtest</div>
-          <h1>Turn a paper into a <span className="grad">running backtest.</span></h1>
-          <p>
-            Drop in a research paper. A local model reads it, distills a tradeable
-            strategy, and runs it against real market data — all on your machine.
-          </p>
-        </section>
-
-        <div className="pipeline">
-          <Step1Paper state={s1} onDone={handleStep1Done} />
-          <Step2Strategy
-            state={s2}
-            paperId={paperId}
-            model={config?.ollama_model}
-            onDone={handleStep2Done}
-          />
-          <Step3Backtest
-            state={s3}
-            mode={strategyMode}
-            strategySpec={strategySpec}
-            portfolioConfig={portfolioConfig}
-            strategyCode={strategyCode}
-            alpacaConfigured={config?.alpaca_configured ?? true}
-            onDone={handleStep3Done}
-          />
-          <Step4Results state={s4} result={backtestResult} />
-        </div>
-      </main>
-    </div>
+        <main className="stage-wrap">
+          <div className="pipeline">
+            <Step1Paper state={s1} onDone={handleStep1Done} />
+            <Step2Strategy
+              state={s2}
+              paperId={paperId}
+              onDone={handleStep2Done}
+            />
+            <Step3Backtest
+              state={s3}
+              mode={strategyMode}
+              strategySpec={strategySpec}
+              portfolioConfig={portfolioConfig}
+              strategyCode={strategyCode}
+              alpacaConfigured={config?.alpaca_configured ?? true}
+              onDone={handleStep3Done}
+            />
+            <Step4Results state={s4} result={backtestResult} />
+          </div>
+        </main>
+      </div>
+    </>
   )
 }

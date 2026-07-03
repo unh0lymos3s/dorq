@@ -29,6 +29,7 @@ export interface StrategySpec {
   exit_conditions: string[]
   position_sizing: string
   risk_params: RiskParams
+  init_cash: number
 }
 
 export interface PortfolioConfig {
@@ -37,6 +38,7 @@ export interface PortfolioConfig {
   date_range: [string, string]
   position_sizing: string
   risk_params: RiskParams
+  init_cash: number
 }
 
 export interface CodeStrategyResult {
@@ -44,10 +46,29 @@ export interface CodeStrategyResult {
   portfolio_config: PortfolioConfig
 }
 
+export interface PricePoint {
+  t: string
+  c: number
+}
+
+export interface TradeMarker {
+  asset: string
+  side: 'long' | 'short'
+  status: 'open' | 'closed'
+  entry_time: string
+  entry_price: number
+  exit_time: string | null
+  exit_price: number | null
+  pnl: number | null
+  return_pct: number | null
+}
+
 export interface BacktestResult {
   backtest_id: string
   metrics: Record<string, number | string | null>
   charts: string[]
+  price_series?: Record<string, PricePoint[]>
+  trades?: TradeMarker[]
 }
 
 export type GenerateMode = 'spec' | 'code'

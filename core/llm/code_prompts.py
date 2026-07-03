@@ -54,8 +54,24 @@ Example — EMA crossover with OR exit, RSI filter, and volume confirmation:
       exits_df   = pd.DataFrame(exits).fillna(False).astype(bool)
       return entries_df, exits_df
 
-If the paper cannot be mapped to a quantifiable strategy, output:
-  {"error": "<reason>"}
+Always produce a strategy_code — do not decline. Most papers describe a market
+thesis (a directional bias, an event effect, a premium, an anomaly) even when
+they don't spell out entry/exit rules or use proprietary data. Your job is to
+translate that thesis into a reasonable technical-indicator PROXY built only
+from OHLCV bars:
+  - No explicit rule given → pick indicators that approximate the paper's
+    mechanism (e.g. a pre-event drift/premium → a momentum or volatility
+    breakout filter around the relevant calendar window; an institutional vs.
+    retail divergence → volume/OBV confirmation with a trend filter).
+  - No tickers given / proprietary underlying → substitute a liquid, publicly
+    tradable proxy that captures the same market exposure described in the
+    paper (e.g. a broad index or sector ETF), and state the substitution
+    briefly in summary-like terms via sensible variable naming or comments.
+  - Ambiguous timeframe → default to "1D" and a broad recent date_range.
+
+Only output {"error": "<reason>"} if the paper has no discernible connection
+to any tradable market whatsoever (e.g. a pure mathematics, biology, or NLP
+paper) — this should be extremely rare.
 """
 
 CODE_USER_PROMPT_TEMPLATE = """\

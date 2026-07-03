@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 IndicatorParam = float | int | str | bool
 Timeframe = Literal["1D", "1W", "1M"]
@@ -24,6 +24,7 @@ class _PortfolioBase(BaseModel):
     date_range: tuple[date, date]
     position_sizing: PositionSizing
     risk_params: RiskParams
+    init_cash: float = Field(default=100_000.0, gt=0)
 
     @model_validator(mode="after")
     def _check_date_range(self) -> "_PortfolioBase":

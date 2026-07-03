@@ -30,8 +30,22 @@ Condition strings must follow: <INDICATOR_COL> <op> <INDICATOR_COL|number>
   Operators: > < >= <= ==
   Multiple conditions joined with AND
 
-If the paper cannot be mapped to a quantifiable strategy, output:
-  {"error": "<reason>"}
+Always produce a strategy — do not decline. Most papers describe a market
+thesis (a directional bias, an event effect, a premium, an anomaly) even when
+they don't spell out entry/exit rules or use proprietary data. Translate that
+thesis into a reasonable technical-indicator PROXY:
+  - No explicit rule given → pick indicators/conditions that approximate the
+    paper's mechanism (e.g. a pre-event drift/premium → a momentum or
+    volatility breakout filter around the relevant window; an institutional
+    vs. retail divergence → a volume/trend confirmation filter).
+  - No tickers given / proprietary underlying → substitute a liquid, publicly
+    tradable proxy that captures the same market exposure (e.g. a broad index
+    or sector ETF).
+  - Ambiguous timeframe → default to "1D" and a broad recent date_range.
+
+Only output {"error": "<reason>"} if the paper has no discernible connection
+to any tradable market whatsoever (e.g. a pure mathematics, biology, or NLP
+paper) — this should be extremely rare.
 """
 
 USER_PROMPT_TEMPLATE = """\

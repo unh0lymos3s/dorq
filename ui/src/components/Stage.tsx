@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { MouseEvent, ReactNode } from 'react'
 
 export type StageState = 'idle' | 'active' | 'done'
 
@@ -25,13 +25,18 @@ const CHECK = (
  */
 export default function Stage({ n, title, state, badge, badgeTone = 'neutral', last, children }: StageProps) {
   const badgeClass = badgeTone === 'pos' ? 'card-badge pos' : badgeTone === 'neg' ? 'card-badge neg' : 'card-badge'
+  const onMove = (e: MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`)
+    e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`)
+  }
   return (
     <div className={`stage-row is-${state}`}>
       <div className="rail">
         <div className="node">{state === 'done' ? CHECK : n}</div>
         {!last && <div className="connector" />}
       </div>
-      <div className="card">
+      <div className="card" onMouseMove={onMove}>
         <div className="card-head">
           <h2 className="card-title">{title}</h2>
           {badge != null && <span className={badgeClass}>{badge}</span>}

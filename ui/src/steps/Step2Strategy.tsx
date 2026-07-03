@@ -6,7 +6,6 @@ import Stage, { Dots, type StageState } from '../components/Stage'
 interface Props {
   state: StageState
   paperId: string | null
-  model?: string
   onDone: (
     mode: 'spec' | 'code',
     spec: StrategySpec | null,
@@ -15,12 +14,21 @@ interface Props {
   ) => void
 }
 
-export default function Step2Strategy({ state, paperId, model, onDone }: Props) {
+export default function Step2Strategy({ state, paperId, onDone }: Props) {
   const [tab, setTab] = useState<'spec' | 'code'>('spec')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [specResult, setSpecResult] = useState<StrategySpec | null>(null)
   const [codeResult, setCodeResult] = useState<CodeStrategyResult | null>(null)
+
+  const handleCodeEdit = useCallback((next: string) => {
+    setCodeResult(prev => {
+      if (!prev) return prev
+      const updated = { ...prev, strategy_code: next }
+      onDone('code', null, updated.portfolio_config, next)
+      return updated
+    })
+  }, [onDone])
 
   const handleGenerate = useCallback(async () => {
     if (!paperId) { setError('No paper loaded.'); return }
@@ -66,19 +74,9 @@ export default function Step2Strategy({ state, paperId, model, onDone }: Props) 
             <button className={`tab${tab === 'code' ? ' is-on' : ''}`} onClick={() => setTab('code')}>Code strategy</button>
           </div>
 
-          <p className="summary-text">
-            {tab === 'spec'
-              ? 'Distil the paper into a structured, rule-based strategy spec.'
-              : 'Generate vectorbt strategy code derived from the paper.'}
-          </p>
-
           <button className="btn" onClick={handleGenerate} disabled={loading}>
             {loading ? <Dots /> : 'Generate'}
           </button>
-
-          <p className="note">
-            Runs locally on <code>{model ?? 'ollama'}</code> — no keys, nothing leaves your machine.
-          </p>
           {error && <p className="error">{error}</p>}
         </div>
       )}
@@ -103,6 +101,16 @@ export default function Step2Strategy({ state, paperId, model, onDone }: Props) 
             <div className="kv-row"><span className="kv-k">timeframe</span><span className="kv-v">{codeResult.portfolio_config.timeframe}</span></div>
             <div className="kv-row"><span className="kv-k">range</span><span className="kv-v">{codeResult.portfolio_config.date_range[0]} → {codeResult.portfolio_config.date_range[1]}</span></div>
             <div className="kv-row"><span className="kv-k">code length</span><span className="kv-v">{codeResult.strategy_code.length} chars</span></div>
+          </div>
+          <div className="field">
+            <label className="field-label" htmlFor="strategy-code-box">strategy_code</label>
+            <textarea
+              id="strategy-code-box"
+              className="code-box"
+              spellCheck={false}
+              value={codeResult.strategy_code}
+              onChange={e => handleCodeEdit(e.target.value)}
+            />
           </div>
         </div>
       )}

@@ -8,7 +8,7 @@ from pydantic import BaseModel, model_validator
 from config import settings
 from core.backtest.data import fetch_bars
 from core.backtest.engine import run_backtest, run_backtest_from_code
-from core.backtest.metrics import extract_metrics, render_charts
+from core.backtest.metrics import extract_metrics, extract_price_series, extract_trades, render_charts
 from core.errors import (
     ERR_ALPACA_FETCH,
     ERR_ALPACA_NOT_CONFIGURED,
@@ -84,6 +84,8 @@ async def run_backtest_route(request: Request, body: BacktestRunBody):
 
     metrics = extract_metrics(portfolio, price_data=bars)
     charts = render_charts(portfolio)
+    price_series = extract_price_series(bars)
+    trades = extract_trades(portfolio)
 
     # Attach strategy_spec only for spec-mode runs (code-mode has no StrategySpec).
     saved_spec: StrategySpec | None = body.strategy_spec if body.mode == "spec" else None
@@ -93,6 +95,8 @@ async def run_backtest_route(request: Request, body: BacktestRunBody):
         metrics=metrics,
         charts=charts,
         strategy_spec=saved_spec,
+        price_series=price_series,
+        trades=trades,
     )
     await request.app.state.backtests.put(result.backtest_id, result)
     logger.info("backtest.done backtest_id=%s total_return=%s num_trades=%s",

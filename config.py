@@ -2,6 +2,10 @@ from functools import lru_cache
 from typing import Literal
 
 from pydantic_settings import BaseSettings
+import os
+import dotenv
+
+dotenv.load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -20,8 +24,8 @@ class Settings(BaseSettings):
     llm_timeout: int = 600
 
     # --- Alpaca market data (read from env, never from the client) ---
-    alpaca_api_key: str = ""
-    alpaca_secret_key: str = ""
+    alpaca_api_key: str = os.getenv("DORQ_ALPACA_API_KEY", "")
+    alpaca_secret_key: str = os.getenv("DORQ_ALPACA_SECRET_KEY", "")
 
     @property
     def alpaca_configured(self) -> bool:

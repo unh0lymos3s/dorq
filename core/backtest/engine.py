@@ -99,6 +99,7 @@ def _vbt_kwargs(
     position_sizing: str,
     timeframe: str,
     risk_params,
+    init_cash: float = 100_000.0,
 ) -> dict:
     freq = _TIMEFRAME_FREQ.get(timeframe, "D")
     n_assets = len(close_df.columns)
@@ -120,6 +121,7 @@ def _vbt_kwargs(
         freq=freq,
         group_by=shared,
         cash_sharing=shared,
+        init_cash=init_cash,
     )
     if risk_params.stop_loss_pct is not None:
         kwargs["sl_stop"] = risk_params.stop_loss_pct / 100
@@ -147,7 +149,10 @@ def _run_backtest(spec: StrategySpec, bars: dict[str, pd.DataFrame]):
     exits_df = pd.concat(exits_map, axis=1).fillna(False)
 
     return vbt.Portfolio.from_signals(
-        **_vbt_kwargs(close_df, entries_df, exits_df, spec.position_sizing, spec.timeframe, spec.risk_params)
+        **_vbt_kwargs(
+            close_df, entries_df, exits_df, spec.position_sizing, spec.timeframe, spec.risk_params,
+            init_cash=spec.init_cash,
+        )
     )
 
 
@@ -181,6 +186,7 @@ def _run_backtest_from_code(
         **_vbt_kwargs(
             close_df, entries_df, exits_df,
             portfolio_config.position_sizing, portfolio_config.timeframe, portfolio_config.risk_params,
+            init_cash=portfolio_config.init_cash,
         )
     )
 

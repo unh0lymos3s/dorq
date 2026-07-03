@@ -63,7 +63,8 @@ async def test_extract_metrics_returns_expected_keys():
     bars = _make_bars()
     portfolio = await run_backtest(SMA_CROSSOVER_SPEC, bars)
     metrics = extract_metrics(portfolio)
-    for key in ("total_return", "sharpe_ratio", "max_drawdown", "win_rate", "num_trades"):
+    for key in ("total_return", "sharpe_ratio", "max_drawdown", "win_rate", "num_trades",
+                "calmar_ratio", "volatility"):
         assert key in metrics
 
 

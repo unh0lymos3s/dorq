@@ -7,6 +7,17 @@ import plotly.io as pio
 
 logger = logging.getLogger(__name__)
 
+# Explicit subset of vectorbt's default stats — excludes "profit_factor" and
+# "expectancy", whose calc_func mutates a numpy array in place and raises
+# "ValueError: assignment destination is read-only" against current
+# numpy/pandas (read-only views), reproducible with any ungrouped/non-shared
+# portfolio (position_sizing="fixed"). None of the excluded metrics are used
+# in the returned payload anyway.
+_STATS_METRICS = [
+    "total_return", "period", "sharpe_ratio", "sortino_ratio", "calmar_ratio",
+    "max_dd", "win_rate", "total_trades",
+]
+
 
 def extract_metrics(
     portfolio,
@@ -34,7 +45,7 @@ def extract_metrics(
         except Exception:
             return None
 
-    stats = portfolio.stats()
+    stats = portfolio.stats(metrics=_STATS_METRICS)
 
     # When position_sizing is "fixed", portfolio.stats() returns a DataFrame
     # (one column per asset) rather than a Series.  Reduce to a single Series
@@ -56,14 +67,27 @@ def extract_metrics(
             except Exception:
                 pass
 
+    volatility = None
+    try:
+        vol = portfolio.annualized_volatility()
+        if isinstance(vol, pd.Series):
+            vol = vol.mean()
+        # annualized_volatility() returns a fraction (e.g. 0.137); store as
+        # percentage points to match the other "[%]" stats (max_drawdown, win_rate).
+        volatility = round(float(vol) * 100, 4)
+    except Exception:
+        logger.exception("annualized_volatility computation failed")
+
     result: dict[str, float | int | None | str] = {
         "total_return": _get_float("Total Return [%]"),
         "annualized_return": ann,
         "sharpe_ratio": _get_float("Sharpe Ratio"),
         "sortino_ratio": _get_float("Sortino Ratio"),
+        "calmar_ratio": _get_float("Calmar Ratio"),
         "max_drawdown": _get_float("Max Drawdown [%]"),
         "win_rate": _get_float("Win Rate [%]"),
         "num_trades": _get_int("Total Trades"),
+        "volatility": volatility,
     }
 
     if price_data is not None:
@@ -74,6 +98,49 @@ def extract_metrics(
             logger.exception("portfolio_vs_candles_chart rendering failed")
 
     return result
+
+
+def extract_price_series(price_data: dict[str, pd.DataFrame]) -> dict[str, list[dict]]:
+    """Per-asset close-price time series — the market data the chart draws."""
+    series: dict[str, list[dict]] = {}
+    for symbol, df in price_data.items():
+        close = df["close"]
+        series[symbol] = [
+            {"t": ts.isoformat(), "c": round(float(v), 4)}
+            for ts, v in close.items()
+        ]
+    return series
+
+
+def extract_trades(portfolio) -> list[dict]:
+    """Simulated entries/exits from the portfolio, keyed by asset symbol."""
+    try:
+        records = portfolio.trades.records_readable
+    except Exception:
+        logger.exception("extract_trades failed")
+        return []
+
+    trades: list[dict] = []
+    for _, row in records.iterrows():
+        try:
+            exit_ts = row.get("Exit Timestamp")
+            exit_price = row.get("Avg Exit Price")
+            pnl = row.get("PnL")
+            ret = row.get("Return")
+            trades.append({
+                "asset": str(row["Column"]),
+                "side": "short" if str(row.get("Direction", "")).lower() == "short" else "long",
+                "status": "closed" if str(row.get("Status", "")).lower() == "closed" else "open",
+                "entry_time": pd.Timestamp(row["Entry Timestamp"]).isoformat(),
+                "entry_price": round(float(row["Avg Entry Price"]), 4),
+                "exit_time": pd.Timestamp(exit_ts).isoformat() if pd.notna(exit_ts) else None,
+                "exit_price": round(float(exit_price), 4) if pd.notna(exit_price) else None,
+                "pnl": round(float(pnl), 4) if pd.notna(pnl) else None,
+                "return_pct": round(float(ret) * 100, 4) if pd.notna(ret) else None,
+            })
+        except Exception:
+            logger.exception("extract_trades: skipping unreadable trade row")
+    return trades
 
 
 def render_charts(portfolio) -> list[str]:
