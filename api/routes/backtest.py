@@ -106,6 +106,27 @@ async def run_backtest_route(request: Request, body: BacktestRunBody):
     return result
 
 
+@router.get("")
+async def list_backtests(request: Request) -> list[dict]:
+    """Lightweight summaries of every backtest in the session store,
+    most recent first — enough for a history/comparison view without
+    shipping full curves and charts."""
+    entries = await request.app.state.backtests.items()
+    return [
+        {
+            "backtest_id": backtest_id,
+            "created_at": r.created_at.isoformat(),
+            "title": r.strategy_spec.title if r.strategy_spec else None,
+            "assets": r.strategy_spec.assets if r.strategy_spec else list(r.price_series.keys()),
+            "total_return": r.metrics.get("total_return"),
+            "sharpe_ratio": r.metrics.get("sharpe_ratio"),
+            "max_drawdown": r.metrics.get("max_drawdown"),
+            "num_trades": r.metrics.get("num_trades"),
+        }
+        for backtest_id, r in entries
+    ]
+
+
 @router.get("/{backtest_id}", response_model=BacktestResult)
 async def get_backtest(request: Request, backtest_id: str):
     result = await request.app.state.backtests.get(backtest_id)

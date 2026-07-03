@@ -29,6 +29,11 @@ class LRUStore(Generic[V]):
             self._d.move_to_end(key)
             return self._d[key]
 
+    async def items(self) -> list[tuple[str, V]]:
+        """Snapshot of (key, value) pairs, most recently used first."""
+        async with self._lock:
+            return list(reversed(self._d.items()))
+
     def get_sync(self, key: str) -> V | None:
         """Non-async read for use inside sync contexts."""
         return self._d.get(key)

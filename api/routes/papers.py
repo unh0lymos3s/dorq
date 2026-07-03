@@ -56,6 +56,22 @@ async def _parse_and_store(
     }
 
 
+@router.get("")
+async def list_papers(request: Request) -> list[dict]:
+    """Summaries of every paper in the session store, most recent first."""
+    entries = await request.app.state.papers.items()
+    return [
+        {
+            "paper_id": paper_id,
+            "filename": entry["record"].filename,
+            "source_url": entry["record"].source_url,
+            "uploaded_at": entry["record"].uploaded_at.isoformat(),
+            "markdown_length": len(entry["parsed"].full_markdown),
+        }
+        for paper_id, entry in entries
+    ]
+
+
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
 async def upload_paper(request: Request, file: UploadFile):
     pdf_bytes = await file.read()
