@@ -9,6 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
+# Local credentials — never commit (.env.example is the template)
+.env
+
 # Claude Code local files
 .claude/settings.local.json
 .claude/agent-memory/

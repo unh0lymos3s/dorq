@@ -106,7 +106,7 @@ Papers, strategies, and backtest results live in bounded `LRUStore`s on `app.sta
 
 ## LLM: local Ollama
 
-The server talks to a single **local Ollama instance** — clients never send a provider, model, or key. `core/llm/client.py:build_litellm_kwargs()` builds the LiteLLM call as `ollama_chat/{model}` against `settings.ollama_base_url`, with `format="json"` for structured extraction (omitted for free-form chat via `json_mode=False`). Model and host come from `DORQ_OLLAMA_MODEL` (default `minimax-m3:cloud`) and `DORQ_OLLAMA_BASE_URL` (default `http://localhost:11434`). The default is an Ollama **cloud** model — the local ollama proxies it to ollama.com, so run `ollama signin` first. For a fully local model, `ollama pull <model>` and set `DORQ_OLLAMA_MODEL` to its tag.
+The server talks to a single **local Ollama instance** — clients never send a provider, model, or key. `core/llm/client.py:build_litellm_kwargs()` builds the LiteLLM call as `ollama_chat/{model}` against `settings.ollama_base_url`, with `format="json"` for structured extraction (omitted for free-form chat via `json_mode=False`). Model and host come from `DORQ_OLLAMA_MODEL` (**required**, no default — LLM routes return 503 `ollama_not_configured` until set; gated by `settings.ollama_configured`) and `DORQ_OLLAMA_BASE_URL` (default `http://localhost:11434`). Set the model to any tag your Ollama serves (`ollama pull <model>`), or an Ollama **cloud** tag proxied to ollama.com (run `ollama signin` first).
 
 On invalid/unparseable JSON from the model, `strategy_gen.py` retries once with a stricter prompt. If both attempts fail, it raises `ValueError("llm_invalid_json")`.
 

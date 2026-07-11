@@ -56,16 +56,17 @@ uv sync --dev
 # credentials & model (server env only — the client never sends keys)
 export DORQ_ALPACA_API_KEY=...
 export DORQ_ALPACA_SECRET_KEY=...
-export DORQ_OLLAMA_MODEL=minimax-m3:cloud   # or any local tag you've pulled
+export DORQ_OLLAMA_MODEL=<model-tag>   # any tag your Ollama serves — required
 
 uv run uvicorn main:app --port 8000
 ```
 
 Open **http://localhost:8000**.
 
-> The default model is an Ollama **cloud** model — your local Ollama proxies
-> it to ollama.com, so run `ollama signin` once. For a fully local setup,
-> `ollama pull <model>` and set `DORQ_OLLAMA_MODEL` to its tag.
+> No model is baked in — set `DORQ_OLLAMA_MODEL` to any tag you've pulled
+> (`ollama pull <model>`), or an Ollama **cloud** tag your local Ollama
+> proxies to ollama.com (run `ollama signin` once). LLM features return
+> 503 `ollama_not_configured` until it's set.
 
 ## Configuration
 
@@ -76,7 +77,7 @@ file in the repo root:
 |----------|---------|-------------|
 | `DORQ_ALPACA_API_KEY` | — | Alpaca market-data key. Backtests are disabled until set. |
 | `DORQ_ALPACA_SECRET_KEY` | — | Alpaca secret. |
-| `DORQ_OLLAMA_MODEL` | `minimax-m3:cloud` | Model tag Ollama serves. |
+| `DORQ_OLLAMA_MODEL` | — (required) | Model tag Ollama serves. LLM features are disabled until set. |
 | `DORQ_OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama host. |
 | `DORQ_LLM_TIMEOUT` | `600` | Per-request LLM timeout (seconds). |
 | `DORQ_LOG_LEVEL` | `info` | `debug` \| `info` \| `warning` \| `error` \| `critical` |

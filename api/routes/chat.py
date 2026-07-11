@@ -9,7 +9,13 @@ import logging
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel
 
-from core.errors import ERR_MISSING_CONTEXT, ERR_NOT_FOUND, raise_http
+from config import settings
+from core.errors import (
+    ERR_MISSING_CONTEXT,
+    ERR_NOT_FOUND,
+    ERR_OLLAMA_NOT_CONFIGURED,
+    raise_http,
+)
 from core.llm.client import build_litellm_kwargs, complete
 from core.llm.prompts import (
     CHAT_PAPER_CONTEXT,
@@ -33,6 +39,12 @@ class ChatResponse(BaseModel):
 
 @router.post("", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
+    if not settings.ollama_configured:
+        raise_http(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            ERR_OLLAMA_NOT_CONFIGURED,
+            "No model configured — set DORQ_OLLAMA_MODEL to an Ollama model tag",
+        )
     if body.paper_id is None and body.strategy_id is None:
         raise_http(
             status.HTTP_422_UNPROCESSABLE_ENTITY,

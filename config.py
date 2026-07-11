@@ -16,9 +16,10 @@ class Settings(BaseSettings):
 
     # --- LLM: local Ollama on the host machine ---
     # The server talks to a single Ollama instance; no provider/key is taken
-    # from the client. Override the model/host via DORQ_OLLAMA_* env vars.
+    # from the client. No model is baked into the code — the tag must come
+    # from DORQ_OLLAMA_MODEL. LLM routes return 503 until it is set.
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "minimax-m3:cloud"
+    ollama_model: str = ""
     # Per-request LLM timeout in seconds. Cloud / large local models can be
     # slow to first token, so this is generous by default.
     llm_timeout: int = 600
@@ -30,6 +31,10 @@ class Settings(BaseSettings):
     @property
     def alpaca_configured(self) -> bool:
         return bool(self.alpaca_api_key and self.alpaca_secret_key)
+
+    @property
+    def ollama_configured(self) -> bool:
+        return bool(self.ollama_model)
 
     model_config = {"env_prefix": "DORQ_"}
 

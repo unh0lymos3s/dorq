@@ -71,6 +71,17 @@ body {
   z-index: 0;
 }
 
+/* Dark mask over the dither canvas — dims the waves so the glass panels and
+   type stay legible; follows the theme via --base (black scrim in dark,
+   paper wash in light). */
+.dither-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--base) 62%, transparent);
+}
+
 /* Fine film grain over the dither canvas — keeps it from reading too clean. */
 body::before {
   content: '';

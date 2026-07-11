@@ -3,12 +3,25 @@ import logging
 from fastapi import APIRouter, Request, status
 from pydantic import BaseModel
 
-from core.errors import ERR_DOCLING_PARSE, ERR_LLM_INVALID_JSON, ERR_STRATEGY_RUNTIME, raise_http
+from config import settings
+from core.errors import (
+    ERR_DOCLING_PARSE,
+    ERR_LLM_INVALID_JSON,
+    ERR_OLLAMA_NOT_CONFIGURED,
+    ERR_STRATEGY_RUNTIME,
+    raise_http,
+)
 from core.llm.code_strategy_gen import generate_code_strategy
 from core.llm.strategy_gen import generate_strategy
 
 router = APIRouter(prefix="/strategies", tags=["strategies"])
 logger = logging.getLogger("dorq." + __name__)
+
+
+def _require_model() -> None:
+    if not settings.ollama_configured:
+        raise_http(status.HTTP_503_SERVICE_UNAVAILABLE, ERR_OLLAMA_NOT_CONFIGURED,
+                   "No model configured — set DORQ_OLLAMA_MODEL to an Ollama model tag")
 
 
 class GenerateRequest(BaseModel):
@@ -17,6 +30,7 @@ class GenerateRequest(BaseModel):
 
 @router.post("/generate")
 async def generate_strategy_route(request: Request, body: GenerateRequest):
+    _require_model()
     logger.info("strategy.generate paper_id=%s", body.paper_id)
 
     entry = await request.app.state.papers.get(body.paper_id)
@@ -53,6 +67,7 @@ async def generate_strategy_route(request: Request, body: GenerateRequest):
 
 @router.post("/generate-code")
 async def generate_code_strategy_route(request: Request, body: GenerateRequest):
+    _require_model()
     logger.info("strategy.generate_code paper_id=%s", body.paper_id)
 
     entry = await request.app.state.papers.get(body.paper_id)

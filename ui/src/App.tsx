@@ -130,7 +130,7 @@ export default function App() {
             {config && (
               <span className="status-pill" title="Local model serving this app">
                 <span className={`dot${config.alpaca_configured ? '' : ' off'}`} />
-                {config.ollama_model} · ollama
+                {config.ollama_model || 'no model set'} · ollama
               </span>
             )}
             {paperId && (
