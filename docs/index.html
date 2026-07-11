@@ -363,10 +363,12 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
 .kv-v { color: var(--ink-mute); text-align: right; font-size: 12px; }
 .kv-v b { color: var(--ink-dim); font-weight: 600; }
 
-/* ─── Ollama strip ──────────────────────────────────────────────────────── */
-.ollama-strip {
+/* ─── Credits row (Claude / Ollama) ─────────────────────────────────────── */
+.credit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: stretch; }
+.credit-strip {
   display: flex; align-items: center; gap: 20px;
   padding: 22px 24px;
+  height: 100%;
 }
 .ollama-logo {
   height: 64px; width: auto; flex-shrink: 0;
@@ -374,9 +376,15 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
   opacity: 0.92;
 }
 :root.light .ollama-logo { filter: none; }
-.ollama-text { font-size: 13px; color: var(--ink-dim); line-height: 1.7; }
-.ollama-text b { color: var(--ink); }
-.ollama-text a { color: var(--ink); }
+.claude-marks {
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  flex-shrink: 0;
+}
+.claude-logo { width: 52px; height: 52px; border-radius: 12px; display: block; }
+.anthropic-logo { width: 44px; height: auto; color: var(--ink); display: block; }
+.credit-text { font-size: 13px; color: var(--ink-dim); line-height: 1.7; }
+.credit-text b { color: var(--ink); }
+.credit-text a { color: var(--ink); }
 
 /* ─── Footer ────────────────────────────────────────────────────────────── */
 .footer {
@@ -395,7 +403,9 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
   .feature-grid { grid-template-columns: 1fr; }
   .stage-row { grid-template-columns: 28px 1fr; gap: 12px; }
   .node { width: 28px; height: 28px; font-size: 12px; }
-  .ollama-strip { flex-direction: column; text-align: center; }
+  .credit-grid { grid-template-columns: 1fr; }
+  .credit-strip { flex-direction: column; text-align: center; }
+  .claude-marks { flex-direction: row; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -574,16 +584,29 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
 
     <section class="section">
       <span class="section-label">Powered by</span>
-      <div class="card"><div class="ollama-strip">
-        <img class="ollama-logo" src="ollama.png" alt="Ollama logo" width="181" height="256" />
-        <p class="ollama-text">
-          <b>dorq runs on <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a>.</b><br />
-          Strategy extraction and paper Q&amp;A are served by a single local Ollama
-          instance — you bring whatever model your machine (or your ollama.com
-          account) can run. No provider keys, no per-token bills, no paper
-          leaves your box.
-        </p>
-      </div></div>
+      <div class="credit-grid">
+        <div class="card"><div class="credit-strip">
+          <div class="claude-marks">
+            <img class="claude-logo" src="claude.png" alt="Claude logo" width="180" height="180" />
+            <svg class="anthropic-logo" viewBox="0 0 35 24" fill="none" role="img" aria-label="Anthropic logo"><path d="M24.5475 0H19.3384L28.8374 24H34.0465L24.5475 0Z" fill="currentColor"></path><path d="M9.49897 0L0 24H5.31125L7.25395 18.96H17.1914L19.1341 24H24.4454L14.9464 0H9.49897ZM8.97193 14.5029L12.2227 6.06857L15.4735 14.5029H8.97193Z" fill="currentColor"></path></svg>
+          </div>
+          <p class="credit-text">
+            <b>Built with <a href="https://claude.com/claude-code" target="_blank" rel="noopener">Claude</a>.</b><br />
+            dorq — the engine, the UI, and this page — was built with
+            Claude Code by <a href="https://www.anthropic.com" target="_blank" rel="noopener">Anthropic</a>.
+          </p>
+        </div></div>
+        <div class="card"><div class="credit-strip">
+          <img class="ollama-logo" src="ollama.png" alt="Ollama logo" width="181" height="256" />
+          <p class="credit-text">
+            <b>dorq runs on <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a>.</b><br />
+            Strategy extraction and paper Q&amp;A are served by a single local Ollama
+            instance — you bring whatever model your machine (or your ollama.com
+            account) can run. No provider keys, no per-token bills, no paper
+            leaves your box.
+          </p>
+        </div></div>
+      </div>
     </section>
 
     <footer class="footer">
