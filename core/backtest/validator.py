@@ -8,6 +8,28 @@ _BLOCKED_NAMES = frozenset({
     "breakpoint", "input",
 })
 
+# File/network/exec surface reachable through the whitelisted pd/np modules.
+# pd.read_csv("http://...") is an SSRF/exfil primitive; df.to_csv writes to
+# disk; pd.eval / df.query execute expression strings. Blocked by attribute
+# name anywhere in the code — strategies only need in-memory transforms.
+_BLOCKED_ATTRS = frozenset({
+    # pandas readers (all take paths/URLs)
+    "read_csv", "read_table", "read_fwf", "read_clipboard", "read_excel",
+    "read_json", "read_html", "read_xml", "read_hdf", "read_feather",
+    "read_parquet", "read_orc", "read_sas", "read_spss", "read_sql",
+    "read_sql_query", "read_sql_table", "read_gbq", "read_stata",
+    "read_pickle",
+    # pandas writers
+    "to_csv", "to_excel", "to_json", "to_html", "to_xml", "to_hdf",
+    "to_feather", "to_parquet", "to_orc", "to_sql", "to_gbq", "to_stata",
+    "to_pickle", "to_clipboard", "to_latex", "to_markdown",
+    # expression evaluators
+    "eval", "query",
+    # numpy file IO
+    "load", "save", "savez", "savez_compressed", "loadtxt", "savetxt",
+    "genfromtxt", "fromregex", "fromfile", "tofile", "memmap", "DataSource",
+})
+
 _NS_NAMES = frozenset({"pd", "np", "pandas_ta"})
 
 
@@ -42,10 +64,18 @@ def _walk_and_check(tree: ast.AST) -> None:
         if t is _Name:
             if node.id in blocked and isinstance(node.ctx, _Load):
                 raise ValueError(f"forbidden: reference to {node.id!r} at line {node.lineno}")
+            # Dunder globals (__builtins__, __loader__, __spec__, ...) are
+            # sandbox-escape handles; no legitimate strategy needs them.
+            if node.id.startswith("__"):
+                raise ValueError(f"forbidden: dunder name {node.id!r} at line {node.lineno}")
         elif t is _Attribute:
             attr = node.attr
             if attr.startswith("__") and attr.endswith("__"):
                 raise ValueError(f"forbidden: dunder attribute {attr!r} at line {node.lineno}")
+            if attr in _BLOCKED_ATTRS:
+                raise ValueError(
+                    f"forbidden: IO/exec attribute {attr!r} at line {node.lineno}"
+                )
         elif t is _Assign:
             for tgt in node.targets:
                 _check_ns_attr_assign(tgt, node.lineno)

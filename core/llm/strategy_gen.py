@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from core.llm.client import build_litellm_kwargs, complete
 from core.llm.prompts import RETRY_PREFIX, SYSTEM_PROMPT, USER_PROMPT_TEMPLATE
+from core.llm.spec_guard import SpecGuardError, validate_spec
 from core.models.paper import ParsedPaper
 from core.models.strategy import StrategySpec
 
@@ -20,7 +21,12 @@ def _parse_response(content: str) -> StrategySpec:
         raise TypeError("LLM returned non-object JSON")
     if "error" in data:
         raise ValueError(data["error"])
-    return StrategySpec.model_validate(data)
+    spec = StrategySpec.model_validate(data)
+    # Semantic guardrail: indicator vocabulary, param bounds, and condition
+    # grammar are checked here so a bad spec triggers a retry with feedback
+    # instead of failing later inside the backtest engine.
+    validate_spec(spec)
+    return spec
 
 
 async def generate_strategy(parsed_paper: ParsedPaper) -> StrategySpec:
@@ -40,11 +46,14 @@ async def generate_strategy(parsed_paper: ParsedPaper) -> StrategySpec:
         content = await complete(messages, **kwargs)
         try:
             return _parse_response(content)
-        except (json.JSONDecodeError, ValidationError, TypeError) as exc:
+        except (json.JSONDecodeError, ValidationError, TypeError, SpecGuardError) as exc:
             logger.warning(
                 "strategy.parse_failed attempt=%d error=%s response_preview=%r",
                 attempt, exc, content[:500],
             )
             if attempt == 1:
                 raise ValueError("llm_invalid_json")
-            messages[1]["content"] = RETRY_PREFIX + user_content
+            # Feed the concrete failure back so the retry can actually fix it.
+            messages[1]["content"] = (
+                RETRY_PREFIX + f"Problem with your previous output: {exc}\n\n" + user_content
+            )

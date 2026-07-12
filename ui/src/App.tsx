@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import type { StrategySpec, PortfolioConfig, BacktestResult, RunEntry, ServerConfig } from './types'
 import Dither from './components/Dither'
 import BackgroundBoundary from './components/BackgroundBoundary'
+import ArtifactRail from './components/ArtifactRail'
 import Step1Paper from './steps/Step1Paper'
 import Step2Strategy from './steps/Step2Strategy'
 import Step3Backtest from './steps/Step3Backtest'
 import Step4Results from './steps/Step4Results'
+import { useMediaQuery } from './lib/useMediaQuery'
 
 const SUN = (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -102,6 +104,11 @@ export default function App() {
 
   const hasStrategy = strategySpec !== null || strategyCode !== null
 
+  // On wide viewports the charts undock from the results card into a side
+  // artifact rail (720px shell + 400px rail + gaps needs ~1200px).
+  const wide = useMediaQuery('(min-width: 1200px)')
+  const chartsDocked = wide && backtestResult !== null
+
   // Stage states drive the pipeline spine.
   const s1: 'idle' | 'active' | 'done' = paperId ? 'done' : 'active'
   const s2: 'idle' | 'active' | 'done' = hasStrategy ? 'done' : paperId ? 'active' : 'idle'
@@ -144,34 +151,40 @@ export default function App() {
           </div>
         </header>
 
-        <main className="stage-wrap">
-          <div className="pipeline" key={sessionKey}>
-            <Step1Paper state={s1} onDone={handleStep1Done} />
-            <Step2Strategy
-              state={s2}
-              paperId={paperId}
-              onDone={handleStep2Done}
-            />
-            <Step3Backtest
-              state={s3}
-              mode={strategyMode}
-              strategySpec={strategySpec}
-              portfolioConfig={portfolioConfig}
-              strategyCode={strategyCode}
-              alpacaConfigured={config?.alpaca_configured ?? true}
-              runCount={runs.length}
-              onDone={handleStep3Done}
-            />
-            <Step4Results
-              state={s4}
-              result={backtestResult}
-              runs={runs}
-              activeRun={activeRun}
-              onSelectRun={handleSelectRun}
-              paperId={paperId}
-            />
-          </div>
-        </main>
+        <div className={`content-row${chartsDocked ? ' has-rail' : ''}`}>
+          <main className="stage-wrap">
+            <div className="pipeline" key={sessionKey}>
+              <Step1Paper state={s1} onDone={handleStep1Done} />
+              <Step2Strategy
+                state={s2}
+                paperId={paperId}
+                onDone={handleStep2Done}
+              />
+              <Step3Backtest
+                state={s3}
+                mode={strategyMode}
+                strategySpec={strategySpec}
+                portfolioConfig={portfolioConfig}
+                strategyCode={strategyCode}
+                alpacaConfigured={config?.alpaca_configured ?? true}
+                runCount={runs.length}
+                onDone={handleStep3Done}
+              />
+              <Step4Results
+                state={s4}
+                result={backtestResult}
+                runs={runs}
+                activeRun={activeRun}
+                onSelectRun={handleSelectRun}
+                paperId={paperId}
+                chartsDocked={chartsDocked}
+              />
+            </div>
+          </main>
+          {chartsDocked && backtestResult && (
+            <ArtifactRail key={backtestResult.backtest_id} result={backtestResult} />
+          )}
+        </div>
       </div>
     </>
   )

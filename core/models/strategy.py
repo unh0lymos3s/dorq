@@ -14,12 +14,15 @@ class IndicatorDef(BaseModel):
 
 
 class RiskParams(BaseModel):
-    stop_loss_pct: float | None = None
-    take_profit_pct: float | None = None
+    # Percent points (5 = 5%). Bounded so a hallucinated value can't produce
+    # a nonsensical vectorbt stop (engine divides by 100 → must stay in (0, 1]
+    # for stops; take-profit may exceed 100%).
+    stop_loss_pct: float | None = Field(default=None, gt=0, le=100)
+    take_profit_pct: float | None = Field(default=None, gt=0, le=1000)
 
 
 class _PortfolioBase(BaseModel):
-    assets: list[str]
+    assets: list[str] = Field(min_length=1, max_length=20)
     timeframe: Timeframe
     date_range: tuple[date, date]
     position_sizing: PositionSizing

@@ -48,7 +48,8 @@ dorq/
 │   ├── papers.py              # POST /papers/upload, POST /papers/url, GET /papers
 │   ├── strategies.py          # POST /strategies/generate, POST /strategies/generate-code
 │   ├── backtest.py            # POST /backtest/run, GET /backtest, GET /backtest/{id}
-│   └── chat.py                # POST /chat — Q&A over paper and/or strategy
+│   ├── chat.py                # POST /chat — Q&A over paper and/or strategy
+│   └── memory.py              # GET /memory, /memory/papers, /memory/strategies, /memory/search
 ├── core/
 │   ├── errors.py              # error-code constants + raise_http envelope helper
 │   ├── stores.py              # LRUStore — bounded async in-memory stores
@@ -57,10 +58,13 @@ dorq/
 │   │   └── extractor.py       # Heading-based section splitter → dict[str, str]
 │   ├── llm/
 │   │   ├── client.py          # LiteLLM async wrapper against local Ollama
-│   │   ├── prompts.py         # Spec-mode + chat prompt templates
+│   │   ├── prompts.py         # Spec-mode + chat prompt templates (injection-hardened)
 │   │   ├── code_prompts.py    # Code-mode prompt templates
+│   │   ├── spec_guard.py      # Semantic validation of generated specs (vocabulary, params, condition grammar)
 │   │   ├── strategy_gen.py    # ParsedPaper → StrategySpec with retry logic
 │   │   └── code_strategy_gen.py  # ParsedPaper → strategy_code + PortfolioConfig
+│   ├── memory/
+│   │   └── engine.py          # MemoryEngine — file-backed persistence + embeddings + search
 │   ├── backtest/
 │   │   ├── data.py            # Alpaca StockHistoricalDataClient → dict[str, DataFrame]
 │   │   ├── engine.py          # spec/code + bars → vbt.Portfolio (fixed condition parser)
@@ -100,9 +104,11 @@ Supported indicators (see `_compute_indicators` and the prompt vocabulary, which
 
 `BacktestResult` carries `metrics` (percent-kind values are **percent points**, e.g. `12.34` = 12.34% — the UI formats them without rescaling), plus JSON time series: `equity_curve`, `benchmark_curve` (equal-weight buy-and-hold of the same assets), `drawdown_curve`, `price_series`, `trades`. All analytics are assembled by `core/backtest/metrics.py:build_analytics()` run in the thread pool.
 
-## In-Memory State
+## In-Memory State + Persistent Memory Engine
 
 Papers, strategies, and backtest results live in bounded `LRUStore`s on `app.state` (`papers`, `strategies`, `backtests`, maxsize 128 each). `GET /papers` and `GET /backtest` expose most-recent-first summaries for the UI's session history. No database for MVP.
+
+The **memory engine** (`core/memory/engine.py`, on `app.state.memory`) mirrors every parsed paper and generated strategy to disk under `DORQ_MEMORY_DIR` (default `data/memory/`, one JSON file per entry — still no database). On startup `reload_into()` rehydrates the session stores so paper/strategy IDs survive restarts. When `DORQ_OLLAMA_EMBED_MODEL` is set, papers and strategies are embedded via Ollama's `/api/embed` in background tasks and `GET /memory/search?q=` does cosine-similarity recall; without it, search falls back to keyword overlap. Backtest results are not persisted (heavy, reproducible).
 
 ## LLM: local Ollama
 
@@ -115,6 +121,8 @@ On invalid/unparseable JSON from the model, `strategy_gen.py` retries once with 
 All credentials are read from the server environment via `config.Settings` (prefix `DORQ_`) — nothing is accepted from the client:
 - `DORQ_ALPACA_API_KEY` / `DORQ_ALPACA_SECRET_KEY` — market data. `settings.alpaca_configured` gates `/backtest/run`.
 - `DORQ_OLLAMA_MODEL` / `DORQ_OLLAMA_BASE_URL` — the local model.
+- `DORQ_OLLAMA_EMBED_MODEL` — optional embedding model tag for semantic memory search (`settings.embeddings_configured`).
+- `DORQ_MEMORY_DIR` — memory engine persistence root (default `data/memory`, gitignored).
 
 `GET /config` exposes the non-secret runtime config (`ollama_model`, `alpaca_configured`) so the UI can show status without any keys.
 
@@ -128,9 +136,16 @@ All credentials are read from the server environment via `config.Settings` (pref
 - Ollama unreachable on chat → 502 `"llm_error"`
 - vectorbt runtime errors → 500 with `"backtest_runtime_error"` (sanitized)
 
+## LLM Guardrails
+
+- **Spec mode:** `core/llm/spec_guard.py:validate_spec()` runs inside the generation retry loop — indicator vocabulary/params, condition grammar, and ticker sanity are checked before a spec ever reaches the client or engine; failures are fed back to the model on retry. Its column-name derivation must stay in sync with `engine._compute_indicators`.
+- **Code mode:** `core/backtest/validator.py` (AST allowlist) runs both at generation time and again before execution. Blocked: imports, dunder names/attributes, `eval`/`exec`/`getattr`-family builtins, and the pandas/numpy IO surface (`read_*`, `to_csv`/`to_pickle`/..., `df.query`, `pd.eval`, `np.load`/`fromfile`/...) — sandboxed strategies get in-memory transforms only.
+- **Chat:** question capped at 4,000 chars; paper/strategy context is wrapped in `<context>` tags and the system prompt instructs the model to treat it as untrusted data (prompt-injection defense), decline personalized financial advice, and answer in Markdown (the UI renders it).
+- **Models:** `RiskParams` percents and asset-list length are bounded at the pydantic layer for both modes.
+
 ## Design Constraints (Non-Negotiable)
 
-- **No LLM-generated code execution.** The condition evaluator is a fixed parser, not `eval()` or `exec()`.
+- **No LLM-generated code execution.** The condition evaluator is a fixed parser, not `eval()` or `exec()`. (Code-mode strategies run only through the AST-validated sandbox in `executor.py`.)
 - **Credentials come from the server env only** — never from the client/request body.
-- **No database.** In-memory dicts on `app.state` for MVP.
+- **No database.** In-memory dicts on `app.state` for MVP; the memory engine persists to flat JSON files.
 - **Async throughout.** All blocking I/O runs in `run_in_executor`.

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { ChatMessage } from '../types'
 import { friendlyError } from '../apiError'
 import { Dots } from './Stage'
@@ -62,7 +64,15 @@ export default function ChatPanel({ paperId, backtestId }: Props) {
           {messages.map((m, i) => (
             <div key={i} className={`chat-msg is-${m.role}`}>
               <span className="chat-who">{m.role === 'user' ? 'you' : 'model'}</span>
-              <p className="chat-text">{m.text}</p>
+              {m.role === 'assistant' ? (
+                // react-markdown ignores raw HTML by default, so model output
+                // can't inject markup — only markdown formatting is rendered.
+                <div className="chat-text chat-md">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.text}</ReactMarkdown>
+                </div>
+              ) : (
+                <p className="chat-text">{m.text}</p>
+              )}
             </div>
           ))}
           {busy && (

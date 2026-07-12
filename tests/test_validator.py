@@ -120,3 +120,62 @@ def test_blocks_ns_attribute_assignment():
 def test_blocks_async_strategy():
     with pytest.raises(ValueError, match="async"):
         validate_strategy_code("async def strategy(bars): return bars, bars")
+
+
+def test_blocks_dunder_name_reference():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code("def strategy(bars):\n    b = __builtins__\n    return bars, bars")
+
+
+def test_blocks_pandas_read_csv():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code(
+            "def strategy(bars):\n    df = pd.read_csv('http://evil/x.csv')\n    return df, df"
+        )
+
+
+def test_blocks_to_csv_write():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code(
+            "def strategy(bars):\n    for s, df in bars.items():\n        df.to_csv('/tmp/x.csv')\n    return bars, bars"
+        )
+
+
+def test_blocks_read_pickle():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code(
+            "def strategy(bars):\n    pd.read_pickle('x.pkl')\n    return bars, bars"
+        )
+
+
+def test_blocks_df_query():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code(
+            "def strategy(bars):\n    for s, df in bars.items():\n        df.query('close > 0')\n    return bars, bars"
+        )
+
+
+def test_blocks_pd_eval_attribute():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code(
+            "def strategy(bars):\n    pd.eval('1+1')\n    return bars, bars"
+        )
+
+
+def test_blocks_numpy_fromfile():
+    with pytest.raises(ValueError, match="forbidden"):
+        validate_strategy_code(
+            "def strategy(bars):\n    np.fromfile('/etc/passwd')\n    return bars, bars"
+        )
+
+
+def test_allows_to_numpy_and_to_frame():
+    validate_strategy_code(
+        "def strategy(bars):\n"
+        "    entries = {}\n"
+        "    for s, df in bars.items():\n"
+        "        arr = df['close'].to_numpy()\n"
+        "        entries[s] = df['close'].pct_change().to_frame()[df.columns[0]] > 0\n"
+        "    e = pd.DataFrame(entries)\n"
+        "    return e, ~e"
+    )

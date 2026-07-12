@@ -13,6 +13,8 @@ interface Props {
   activeRun: number
   onSelectRun: (idx: number) => void
   paperId: string | null
+  /** True when charts are rendered in the side artifact rail instead of inline. */
+  chartsDocked?: boolean
 }
 
 // All percent-kind metrics arrive from the backend as percent points
@@ -56,7 +58,7 @@ function formatSignedPct(raw: number | string | null | undefined): string {
   return n >= 0 ? `+${n.toFixed(2)}%` : `−${(-n).toFixed(2)}%`
 }
 
-export default function Step4Results({ state, result, runs, activeRun, onSelectRun, paperId }: Props) {
+export default function Step4Results({ state, result, runs, activeRun, onSelectRun, paperId, chartsDocked = false }: Props) {
   const totalReturn = result?.metrics['total_return'] ?? null
   const annReturn = result?.metrics['annualized_return'] ?? null
   const benchReturn = result?.metrics['benchmark_return'] ?? null
@@ -122,7 +124,7 @@ export default function Step4Results({ state, result, runs, activeRun, onSelectR
             </div>
           </div>
 
-          {hasEquity && (
+          {hasEquity && !chartsDocked && (
             <>
               <span className="section-label">Equity vs buy &amp; hold</span>
               <EquityChart
@@ -143,7 +145,7 @@ export default function Step4Results({ state, result, runs, activeRun, onSelectR
             ))}
           </div>
 
-          {assets.length > 0 && (
+          {assets.length > 0 && !chartsDocked && (
             <>
               <span className="section-label">Market &amp; trades</span>
               {assets.length > 1 && (

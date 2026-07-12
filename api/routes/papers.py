@@ -45,6 +45,12 @@ async def _parse_and_store(
     sections = extract_sections(markdown)
     parsed = ParsedPaper(paper_id=paper_id, full_markdown=markdown, sections=sections)
     await request.app.state.papers.put(paper_id, {"record": record, "parsed": parsed})
+
+    # Mirror to the persistent memory engine (embeds in the background).
+    memory = getattr(request.app.state, "memory", None)
+    if memory is not None:
+        await memory.add_paper(record, parsed)
+
     sections_found = [k for k, v in sections.items() if v]
     return {
         "paper_id": paper_id,

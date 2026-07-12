@@ -60,6 +60,9 @@ async def generate_strategy_route(request: Request, body: GenerateRequest):
         raise_http(status.HTTP_500_INTERNAL_SERVER_ERROR, ERR_STRATEGY_RUNTIME, "strategy_runtime_error")
 
     await request.app.state.strategies.put(body.paper_id, spec)
+    memory = getattr(request.app.state, "memory", None)
+    if memory is not None:
+        await memory.add_strategy(body.paper_id, body.paper_id, spec=spec)
     logger.info("strategy.generate done paper_id=%s assets=%s timeframe=%s",
                 body.paper_id, spec.assets, spec.timeframe)
     return spec
@@ -99,6 +102,12 @@ async def generate_code_strategy_route(request: Request, body: GenerateRequest):
     strategy_id = body.paper_id + ":code"
     payload = {"strategy_code": code, "portfolio_config": config}
     await request.app.state.strategies.put(strategy_id, payload)
+    memory = getattr(request.app.state, "memory", None)
+    if memory is not None:
+        await memory.add_strategy(
+            strategy_id, body.paper_id,
+            strategy_code=code, portfolio_config=config.model_dump(mode="json"),
+        )
     logger.info("strategy.generate_code done paper_id=%s assets=%s timeframe=%s code_len=%d",
                 body.paper_id, config.assets, config.timeframe, len(code))
     return {"strategy_code": code, "portfolio_config": config.model_dump(mode="json")}

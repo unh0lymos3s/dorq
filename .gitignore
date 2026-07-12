@@ -22,3 +22,6 @@ ui/node_modules/
 
 # Stray build log
 build.log
+
+# Memory engine persistence (papers/strategies saved at runtime)
+data/

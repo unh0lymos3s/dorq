@@ -7,7 +7,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import settings
 from core.errors import (
@@ -28,9 +28,10 @@ logger = logging.getLogger("dorq." + __name__)
 
 
 class ChatRequest(BaseModel):
-    question: str
-    paper_id: str | None = None
-    strategy_id: str | None = None  # corresponds to a backtest_id stored in app.state.backtests
+    # Bounded input: a single question, not an unbounded prompt surface.
+    question: str = Field(min_length=1, max_length=4_000)
+    paper_id: str | None = Field(default=None, max_length=128)
+    strategy_id: str | None = Field(default=None, max_length=128)  # a backtest_id in app.state.backtests
 
 
 class ChatResponse(BaseModel):

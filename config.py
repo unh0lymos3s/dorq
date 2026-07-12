@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # from DORQ_OLLAMA_MODEL. LLM routes return 503 until it is set.
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = ""
+    # Optional embedding model tag for the memory engine's semantic search
+    # (e.g. "nomic-embed-text"). When unset, memory still persists papers and
+    # strategies but /memory/search falls back to keyword matching.
+    ollama_embed_model: str = ""
     # Per-request LLM timeout in seconds. Cloud / large local models can be
     # slow to first token, so this is generous by default.
     llm_timeout: int = 600
@@ -28,6 +32,9 @@ class Settings(BaseSettings):
     alpaca_api_key: str = os.getenv("DORQ_ALPACA_API_KEY", "")
     alpaca_secret_key: str = os.getenv("DORQ_ALPACA_SECRET_KEY", "")
 
+    # --- Memory engine: file-backed persistence for papers + strategies ---
+    memory_dir: str = "data/memory"
+
     @property
     def alpaca_configured(self) -> bool:
         return bool(self.alpaca_api_key and self.alpaca_secret_key)
@@ -35,6 +42,10 @@ class Settings(BaseSettings):
     @property
     def ollama_configured(self) -> bool:
         return bool(self.ollama_model)
+
+    @property
+    def embeddings_configured(self) -> bool:
+        return bool(self.ollama_embed_model)
 
     model_config = {"env_prefix": "DORQ_"}
 
