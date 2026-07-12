@@ -79,6 +79,8 @@ file in the repo root:
 | `DORQ_ALPACA_SECRET_KEY` | — | Alpaca secret. |
 | `DORQ_OLLAMA_MODEL` | — (required) | Model tag Ollama serves. LLM features are disabled until set. |
 | `DORQ_OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama host. |
+| `DORQ_OLLAMA_EMBED_MODEL` | — (optional) | Embedding model tag (e.g. `nomic-embed-text`) for semantic `/memory/search`. Without it, search falls back to keyword matching. |
+| `DORQ_MEMORY_DIR` | `data/memory` | Where the memory engine persists papers + strategies (flat JSON). |
 | `DORQ_LLM_TIMEOUT` | `600` | Per-request LLM timeout (seconds). |
 | `DORQ_LOG_LEVEL` | `info` | `debug` \| `info` \| `warning` \| `error` \| `critical` |
 | `DORQ_CORS_ORIGINS` | `["*"]` | Allowed CORS origins (JSON array). |
@@ -100,7 +102,10 @@ The UI is a thin client over a JSON API you can drive directly:
 | `POST /backtest/run` | spec or code + params → full `BacktestResult` |
 | `GET /backtest` | session run history (lightweight summaries) |
 | `GET /backtest/{id}` | full stored result |
-| `POST /chat` | Q&A over a paper and/or a run's strategy |
+| `POST /chat` | Q&A over a paper and/or a run's strategy (Markdown answers) |
+| `GET /memory` | memory-engine status (counts, semantic search on/off) |
+| `GET /memory/papers`, `GET /memory/strategies` | persisted history, most recent first |
+| `GET /memory/search?q=&k=` | semantic (embeddings) or keyword recall over stored papers + strategies |
 | `GET /healthz`, `GET /config` | liveness / non-secret runtime config |
 
 A `BacktestResult` includes `metrics` (returns, Sharpe, Sortino, Calmar,
@@ -130,6 +135,29 @@ Conditions are `<column> <op> <column|number>` with `> < >= <= ==`,
 combined with `AND` / `OR` (AND binds tighter). Raw `open/high/low/close`
 are always available. The evaluator is a fixed parser — never `eval()`.
 
+## Building from source
+
+The repo ships with a pre-built SPA in `frontend/`; you only need this when
+you change anything under `ui/`.
+
+```bash
+# 1. Backend — install deps (creates .venv)
+uv sync --dev
+
+# 2. Frontend — build the SPA into frontend/ (Node 18+)
+cd ui
+npm install --legacy-peer-deps   # three.js peer-dep conflict needs the flag
+npm run build                    # tsc type-check + vite build → ../frontend
+cd ..
+
+# 3. Run — FastAPI serves the built SPA at /
+uv run uvicorn main:app --port 8000
+```
+
+`npm run build` fails on any TypeScript error, so it doubles as the
+frontend check. The build emits hashed bundles into `frontend/assets/`
+(gitignored) and rewrites `frontend/index.html` (tracked).
+
 ## Development
 
 ```bash
@@ -137,7 +165,7 @@ uv run pytest                    # backend tests
 uv run uvicorn main:app --reload # hot-reload API
 
 cd ui
-npm install
+npm install --legacy-peer-deps
 npm run dev                      # Vite dev server (proxies to :8000)
 npm run build                    # emits ../frontend (served by FastAPI)
 ```
@@ -150,9 +178,10 @@ The integration test hits live Alpaca data and is opt-in:
 ```
 main.py               FastAPI app, lifespan, SPA serving
 config.py             pydantic-settings (DORQ_* env)
-api/routes/           papers, strategies, backtest, chat
+api/routes/           papers, strategies, backtest, chat, memory
 core/document/        docling parsing + section extraction
-core/llm/             Ollama client, prompts, spec/code generation
+core/llm/             Ollama client, prompts, spec/code generation, spec guardrails
+core/memory/          file-backed memory engine (persistence + embeddings + search)
 core/backtest/        Alpaca data, engine, sandboxed executor, analytics
 core/models/          StrategySpec, BacktestResult, ParsedPaper
 ui/                   React + TypeScript SPA (built into frontend/)
