@@ -107,8 +107,7 @@ input, select, textarea { font-family: var(--font); font-size: 13.5px; color: in
 .app { min-height: 100%; display: flex; flex-direction: column; position: relative; z-index: 2; }
 
 .topbar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 50;
   display: grid;
   grid-template-columns: auto 1fr;
@@ -889,7 +888,7 @@ select.input { appearance: none; cursor: pointer; }
 /* ─── Chart workspace — the right half of the screen on wide viewports ──── */
 .chart-workspace {
   position: sticky;
-  top: 78px;
+  top: 24px;
   flex: 0 0 50%;
   max-width: 50%;
   min-width: 0;

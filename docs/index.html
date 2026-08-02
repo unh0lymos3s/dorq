@@ -111,8 +111,7 @@ a { color: inherit; }
 .page { position: relative; z-index: 2; }
 
 .topbar {
-  position: sticky;
-  top: 0;
+  position: relative;
   z-index: 50;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -131,7 +130,7 @@ a { color: inherit; }
 }
 .brand img {
   display: block;
-  height: 56px;
+  height: 80px;
   width: auto;
 }
 
@@ -166,7 +165,7 @@ a { color: inherit; }
 }
 
 /* ─── Hero ──────────────────────────────────────────────────────────────── */
-.hero { padding: 72px 0 56px; text-align: center; }
+.hero { padding: 20px 0 56px; text-align: center; }
 .hero h1 {
   font-family: var(--font-display);
   font-style: italic;
@@ -418,7 +417,7 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
 
 <div class="page">
   <header class="topbar">
-    <a class="brand" href="#"><img src="dorq-logo.png" alt="dorq" width="292" height="168" /></a>
+    <a class="brand" href="#"><img src="dorq-logo.png" alt="dorq" width="417" height="240" /></a>
     <div class="topbar-right">
       <a class="icon-btn text-btn" href="https://github.com/unh0lymos3s/dorq" target="_blank" rel="noopener">github</a>
       <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">
