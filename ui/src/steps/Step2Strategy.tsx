@@ -107,7 +107,7 @@ export default function Step2Strategy({ state, paperId, onDone, initialSpec = nu
     || (specResult.entry_conditions.length > 0 && specResult.exit_conditions.length > 0)
 
   return (
-    <Stage n={2} title="Generate strategy" state={state} badge={badge}>
+    <Stage title="Generate strategy" state={state} badge={badge}>
       {state === 'active' && !hasResult && (
         <div className="card-body">
           <div className="tabs" role="tablist">

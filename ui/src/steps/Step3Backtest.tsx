@@ -140,7 +140,7 @@ export default function Step3Backtest({
   const showForm = params && ((state === 'active' && !result) || editing)
 
   return (
-    <Stage n={3} title="Run backtest" state={state} badge={badge} badgeTone={badgeTone}>
+    <Stage title="Run backtest" state={state} badge={badge} badgeTone={badgeTone}>
       {showForm && (
         <div className="card-body">
           <div className="context">

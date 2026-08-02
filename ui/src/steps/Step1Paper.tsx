@@ -116,7 +116,7 @@ export default function Step1Paper({ state, onDone, initialResult = null }: Prop
   const badge = result ? (result.filename ?? result.paper_id) : undefined
 
   return (
-    <Stage n={1} title="Upload paper" state={state} badge={badge}>
+    <Stage title="Upload paper" state={state} badge={badge}>
       {state === 'active' && !result && (
         <div className="card-body">
           <div className="tabs" role="tablist">

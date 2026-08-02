@@ -81,7 +81,7 @@ export default function Step4Results({ state, result, runs, activeRun, onSelectR
   const hasEquity = (result?.equity_curve?.length ?? 0) > 1
 
   return (
-    <Stage n={4} title="Results" state={state} badge={result?.backtest_id} last>
+    <Stage title="Results" state={state} badge={result?.backtest_id}>
       {result ? (
         <div className="card-body fade-in">
           {runs.length > 1 && (
