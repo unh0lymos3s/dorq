@@ -425,9 +425,7 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
 
 <div class="page">
   <header class="topbar">
-    <a class="brand" href="#"><img src="dorq-logo.png" alt="dorq" width="1151" height="663" /></a>
     <div class="topbar-right">
-      <a class="icon-btn text-btn" href="https://github.com/unh0lymos3s/dorq" target="_blank" rel="noopener">github</a>
       <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">
         <svg id="ic-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <circle cx="12" cy="12" r="4" />
@@ -437,22 +435,25 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
           <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" />
         </svg>
       </button>
+
     </div>
+    <a class="brand" href="#"><img src="dorq-logo.png" alt="dorq" width="1151" height="663" /></a>
+
   </header>
 
   <main class="shell">
     <section class="hero">
-      <h1>paper in,<br />backtest out.</h1>
+      <h1 style="margin-top:-7%;">paper in,<br />backtest out.</h1>
       <p class="sub">
         dorq turns a quantitative research paper into a backtested trading
-        strategy. Drop in a PDF or a URL — a local LLM extracts the strategy,
-        a deterministic engine runs it against real market data, and you see
-        whether the idea actually beats buy-and-hold.
+        strategy. Build the application, test it out. Star the repo perfavore.
       </p>
-      <div class="pipeline-line">PDF / URL → docling → markdown → local ollama → StrategySpec → vectorbt + alpaca → analytics</div>
+      <div class="pipeline-line">PDF / URL → StrategySpec → Analytics</div>
       <div class="hero-actions">
-        <a class="btn" href="#build">Build it</a>
+        <a class="btn btn-ghost" href="#build">Build it</a>
+        <a class="btn" href="#workflow">Understand the workflow
         <a class="btn btn-ghost" href="https://github.com/unh0lymos3s/dorq" target="_blank" rel="noopener">View source</a>
+        
       </div>
     </section>
 
