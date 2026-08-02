@@ -1,22 +1,67 @@
 import { useCallback, useRef, useState } from 'react'
 import type React from 'react'
-import type { PaperResult } from '../types'
-import { friendlyError } from '../apiError'
+import type { PaperResult, PaperStatus } from '../types'
+import { friendlyDetail, friendlyError } from '../apiError'
 import Stage, { Dots, type StageState } from '../components/Stage'
 
 interface Props {
   state: StageState
   onDone: (paperId: string) => void
+  /** Pre-parsed paper injected when the user reopens one from history. */
+  initialResult?: PaperResult | null
 }
 
-export default function Step1Paper({ state, onDone }: Props) {
+const POLL_MS = 1500
+const POLL_TIMEOUT_MS = 15 * 60 * 1000
+// Transient fetch failures tolerated in a row before giving up — the parse
+// keeps running server-side, so a network blip shouldn't fail the upload.
+const POLL_MAX_MISSES = 8
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+/** Poll GET /papers/{id} until the background docling parse settles. */
+async function pollPaper(paperId: string): Promise<PaperResult> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS
+  let misses = 0
+  while (Date.now() < deadline) {
+    await sleep(POLL_MS)
+    let res: Response
+    try {
+      res = await fetch(`/papers/${paperId}`)
+    } catch {
+      if (++misses > POLL_MAX_MISSES) {
+        throw new Error('Lost connection to the server. The paper may still finish parsing — retry in a moment.')
+      }
+      continue
+    }
+    misses = 0
+    if (!res.ok) throw await friendlyError(res)
+    const st: PaperStatus = await res.json()
+    if (st.status === 'ready') {
+      return {
+        paper_id: st.paper_id,
+        filename: st.filename ?? undefined,
+        source_url: st.source_url ?? undefined,
+        sections_found: st.sections_found ?? [],
+        markdown_length: st.markdown_length ?? 0,
+      }
+    }
+    if (st.status === 'error') {
+      const raw = st.error ?? 'parse_runtime_error'
+      throw new Error(friendlyDetail(raw))
+    }
+  }
+  throw new Error('Timed out waiting for the parser. Try again.')
+}
+
+export default function Step1Paper({ state, onDone, initialResult = null }: Props) {
   const [tab, setTab] = useState<'pdf' | 'url'>('pdf')
   const [file, setFile] = useState<File | null>(null)
   const [url, setUrl] = useState('')
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<PaperResult | null>(null)
+  const [result, setResult] = useState<PaperResult | null>(initialResult)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const onDrop = useCallback((e: React.DragEvent) => {
@@ -56,7 +101,9 @@ export default function Step1Paper({ state, onDone }: Props) {
         })
       }
       if (!res.ok) throw await friendlyError(res)
-      const data: PaperResult = await res.json()
+      // 202: the parse runs in the background — poll until it settles.
+      const accepted: PaperStatus = await res.json()
+      const data = await pollPaper(accepted.paper_id)
       setResult(data)
       onDone(data.paper_id)
     } catch (err) {

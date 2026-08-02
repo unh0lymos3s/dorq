@@ -8,7 +8,7 @@ import logging
 from fastapi import APIRouter, Query, Request, status
 
 from config import settings
-from core.errors import ERR_INTERNAL, raise_http
+from core.errors import ERR_INTERNAL, ERR_NOT_FOUND, raise_http
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 logger = logging.getLogger("dorq." + __name__)
@@ -44,6 +44,16 @@ async def memory_papers(request: Request) -> list[dict]:
 async def memory_strategies(request: Request) -> list[dict]:
     """All persisted strategies, most recent first."""
     return await _engine(request).list_strategies()
+
+
+@router.get("/strategies/{strategy_id}")
+async def memory_strategy(request: Request, strategy_id: str) -> dict:
+    """Full persisted strategy document (spec or code) so the UI can restore it."""
+    doc = await _engine(request).get_strategy(strategy_id)
+    if doc is None:
+        raise_http(status.HTTP_404_NOT_FOUND, ERR_NOT_FOUND, f"strategy {strategy_id!r} not found")
+    doc.pop("embedding", None)  # internal vector, large and useless to clients
+    return doc
 
 
 @router.get("/search")

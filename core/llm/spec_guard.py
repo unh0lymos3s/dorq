@@ -9,12 +9,11 @@ beats letting it surface later as an opaque backtest error.
 
 import re
 
+from core.models.strategy import TICKER_RE as _TICKER_RE
 from core.models.strategy import IndicatorDef, StrategySpec
 
 class SpecGuardError(ValueError):
     """A structurally valid spec that fails semantic validation."""
-
-_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
 # Mirrors the grammar in core/backtest/engine.py — keep in sync.
 _CONDITION_RE = re.compile(r"^(?P<left>\w+)\s*(?P<op>>=|<=|>|<|==)\s*(?P<right>[\w.]+)$")

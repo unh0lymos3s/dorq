@@ -1,14 +1,16 @@
+import asyncio
 import ipaddress
 import logging
 import socket
 import uuid
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, FastAPI, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, HttpUrl
 
 from core.document.extractor import extract_sections
-from core.document.parser import parse_pdf, parse_url
+from core.document.parser import parse_pdf, parse_url, validate_pdf
+from core.errors import ERR_NOT_FOUND, raise_http
 from core.models.paper import ParsedPaper, PaperRecord
 
 router = APIRouter(prefix="/papers", tags=["papers"])
@@ -20,6 +22,9 @@ _PRIVATE_NETS = [
         "127.0.0.0/8", "169.254.0.0/16", "::1/128", "fc00::/7",
     )
 ]
+
+# Strong references to in-flight parse tasks — create_task alone is collectable.
+_parse_tasks: set[asyncio.Task] = set()
 
 
 def _check_ssrf(url: str) -> None:
@@ -39,85 +44,139 @@ class PaperURLBody(BaseModel):
     url: HttpUrl
 
 
-async def _parse_and_store(
-    request: Request, paper_id: str, markdown: str, record: PaperRecord
-) -> dict:
-    sections = extract_sections(markdown)
-    parsed = ParsedPaper(paper_id=paper_id, full_markdown=markdown, sections=sections)
-    await request.app.state.papers.put(paper_id, {"record": record, "parsed": parsed})
-
-    # Mirror to the persistent memory engine (embeds in the background).
-    memory = getattr(request.app.state, "memory", None)
-    if memory is not None:
-        await memory.add_paper(record, parsed)
-
-    sections_found = [k for k, v in sections.items() if v]
+def _accepted_payload(record: PaperRecord) -> dict:
     return {
-        "paper_id": paper_id,
+        "paper_id": record.paper_id,
+        "status": "parsing",
         "filename": record.filename,
         "source_url": record.source_url,
         "uploaded_at": record.uploaded_at.isoformat(),
-        "sections_found": sections_found,
-        "markdown_length": len(markdown),
     }
+
+
+def _status_payload(entry: dict) -> dict:
+    record: PaperRecord = entry["record"]
+    # Entries rehydrated by the memory engine predate the status field.
+    st = entry.get("status", "ready")
+    payload = {
+        "paper_id": record.paper_id,
+        "status": st,
+        "filename": record.filename,
+        "source_url": record.source_url,
+        "uploaded_at": record.uploaded_at.isoformat(),
+    }
+    if st == "ready":
+        parsed: ParsedPaper = entry["parsed"]
+        payload["sections_found"] = [k for k, v in parsed.sections.items() if v]
+        payload["markdown_length"] = len(parsed.full_markdown)
+    elif st == "error":
+        payload["error"] = entry.get("error", "parse_runtime_error")
+    return payload
+
+
+async def _store_parsed(app: FastAPI, record: PaperRecord, markdown: str) -> None:
+    sections = extract_sections(markdown)
+    parsed = ParsedPaper(paper_id=record.paper_id, full_markdown=markdown, sections=sections)
+    await app.state.papers.put(
+        record.paper_id, {"record": record, "parsed": parsed, "status": "ready"}
+    )
+
+    # Mirror to the persistent memory engine (embeds in the background).
+    memory = getattr(app.state, "memory", None)
+    if memory is not None:
+        await memory.add_paper(record, parsed)
+
+
+async def _parse_in_background(app: FastAPI, record: PaperRecord, parse_coro) -> None:
+    source = record.filename or record.source_url
+    try:
+        markdown = await parse_coro
+    except ValueError as exc:
+        logger.info("paper.parse failed paper_id=%s source=%r error=%s",
+                    record.paper_id, source, exc)
+        await app.state.papers.put(
+            record.paper_id, {"record": record, "status": "error", "error": str(exc)}
+        )
+        return
+    except Exception:
+        logger.error("paper.parse error paper_id=%s source=%r",
+                     record.paper_id, source, exc_info=True)
+        await app.state.papers.put(
+            record.paper_id, {"record": record, "status": "error", "error": "parse_runtime_error"}
+        )
+        return
+
+    await _store_parsed(app, record, markdown)
+    logger.info("paper.parse done paper_id=%s source=%r md_len=%d",
+                record.paper_id, source, len(markdown))
+
+
+def _spawn_parse(app: FastAPI, record: PaperRecord, parse_coro) -> None:
+    task = asyncio.create_task(_parse_in_background(app, record, parse_coro))
+    _parse_tasks.add(task)
+    task.add_done_callback(_parse_tasks.discard)
 
 
 @router.get("")
 async def list_papers(request: Request) -> list[dict]:
     """Summaries of every paper in the session store, most recent first."""
     entries = await request.app.state.papers.items()
-    return [
-        {
+    out = []
+    for paper_id, entry in entries:
+        parsed = entry.get("parsed")
+        out.append({
             "paper_id": paper_id,
             "filename": entry["record"].filename,
             "source_url": entry["record"].source_url,
             "uploaded_at": entry["record"].uploaded_at.isoformat(),
-            "markdown_length": len(entry["parsed"].full_markdown),
-        }
-        for paper_id, entry in entries
-    ]
+            "status": entry.get("status", "ready"),
+            "markdown_length": len(parsed.full_markdown) if parsed else 0,
+        })
+    return out
 
 
-@router.post("/upload", status_code=status.HTTP_201_CREATED)
+@router.get("/{paper_id}")
+async def paper_status(request: Request, paper_id: str) -> dict:
+    """Parse status for one paper: parsing | ready | error."""
+    entry = await request.app.state.papers.get(paper_id)
+    if entry is None:
+        raise_http(status.HTTP_404_NOT_FOUND, ERR_NOT_FOUND, f"paper {paper_id!r} not found")
+    return _status_payload(entry)
+
+
+@router.post("/upload", status_code=status.HTTP_202_ACCEPTED)
 async def upload_paper(request: Request, file: UploadFile):
+    """Accept the PDF and parse it in the background.
+
+    Returns 202 with the paper_id immediately — docling can run for minutes,
+    and holding the HTTP response open that long gets requests severed by
+    proxies and flaky links. Clients poll GET /papers/{paper_id}.
+    """
     pdf_bytes = await file.read()
     logger.info("paper.upload filename=%r size=%d", file.filename, len(pdf_bytes))
 
     try:
-        markdown = await parse_pdf(pdf_bytes)
+        validate_pdf(pdf_bytes)
     except ValueError as exc:
-        logger.info("paper.upload failed filename=%r error=%s", file.filename, exc)
+        logger.info("paper.upload rejected filename=%r error=%s", file.filename, exc)
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    except Exception as exc:
-        logger.error("paper.upload error filename=%r", file.filename, exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "parse_runtime_error") from exc
 
     paper_id = str(uuid.uuid4())
     record = PaperRecord(paper_id=paper_id, filename=file.filename)
-    result = await _parse_and_store(request, paper_id, markdown, record)
-    logger.info("paper.upload done paper_id=%s sections=%s md_len=%d",
-                paper_id, result["sections_found"], result["markdown_length"])
-    return result
+    await request.app.state.papers.put(paper_id, {"record": record, "status": "parsing"})
+    _spawn_parse(request.app, record, parse_pdf(pdf_bytes))
+    return _accepted_payload(record)
 
 
-@router.post("/url", status_code=status.HTTP_201_CREATED)
+@router.post("/url", status_code=status.HTTP_202_ACCEPTED)
 async def paper_from_url(request: Request, body: PaperURLBody):
+    """Accept the URL and parse it in the background (see upload_paper)."""
     url = str(body.url)
     logger.info("paper.url url=%r", url)
     _check_ssrf(url)
 
-    try:
-        markdown = await parse_url(url)
-    except ValueError as exc:
-        logger.info("paper.url failed url=%r error=%s", url, exc)
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
-    except Exception as exc:
-        logger.error("paper.url error url=%r", url, exc_info=True)
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "parse_runtime_error") from exc
-
     paper_id = str(uuid.uuid4())
     record = PaperRecord(paper_id=paper_id, source_url=url)
-    result = await _parse_and_store(request, paper_id, markdown, record)
-    logger.info("paper.url done paper_id=%s sections=%s md_len=%d",
-                paper_id, result["sections_found"], result["markdown_length"])
-    return result
+    await request.app.state.papers.put(paper_id, {"record": record, "status": "parsing"})
+    _spawn_parse(request.app, record, parse_url(url))
+    return _accepted_payload(record)

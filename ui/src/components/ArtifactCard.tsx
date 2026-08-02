@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { downloadCsv, downloadSvgsAsPng } from '../lib/download'
+import { ChartOverlay, EXPAND_ICON } from './Expandable'
 
 interface Props {
   title: string
@@ -18,20 +19,22 @@ const DOWNLOAD_ICON = (
 )
 
 /**
- * A chart artifact docked in the side rail: glass card with a title bar and
- * PNG / CSV download actions. PNG export rasterizes every chart SVG inside
- * the card body (stacked) at 2× on the current theme background.
+ * A chart panel in the workspace: glass card with a title bar and
+ * fullscreen / PNG / CSV actions. PNG export rasterizes every chart SVG inside
+ * the card body (stacked) at 2× on the current theme background. Fullscreen
+ * re-renders the children in a portal overlay.
  */
 export default function ArtifactCard({ title, slug, csvRows, children }: Props) {
   const bodyRef = useRef<HTMLDivElement>(null)
   const [busy, setBusy] = useState(false)
+  const [full, setFull] = useState(false)
 
   const onPng = useCallback(async () => {
     const body = bodyRef.current
     if (!body || busy) return
     const svgs = Array.from(
       body.querySelectorAll<SVGSVGElement>(
-        'svg.trade-chart-svg:not(.is-fullscreen), svg.equity-chart-svg, svg.equity-dd-svg',
+        'svg.trade-chart-svg, svg.equity-chart-svg, svg.equity-dd-svg, svg.dd-chart-svg',
       ),
     )
     if (svgs.length === 0) return
@@ -54,6 +57,9 @@ export default function ArtifactCard({ title, slug, csvRows, children }: Props) 
       <header className="artifact-head">
         <span className="artifact-title">{title}</span>
         <span className="artifact-actions">
+          <button className="artifact-btn" onClick={() => setFull(true)} title="View fullscreen">
+            {EXPAND_ICON} full
+          </button>
           <button className="artifact-btn" onClick={onPng} disabled={busy} title="Download chart as PNG">
             {DOWNLOAD_ICON} png
           </button>
@@ -67,6 +73,7 @@ export default function ArtifactCard({ title, slug, csvRows, children }: Props) 
       <div className="artifact-body" ref={bodyRef}>
         {children}
       </div>
+      {full && <ChartOverlay title={title} onClose={() => setFull(false)}>{children}</ChartOverlay>}
     </section>
   )
 }

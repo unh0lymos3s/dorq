@@ -354,7 +354,7 @@ class MemoryEngine:
                 full_markdown=d["full_markdown"],
                 sections=d.get("sections") or {},
             )
-            await papers_store.put(paper_id, {"record": record, "parsed": parsed})
+            await papers_store.put(paper_id, {"record": record, "parsed": parsed, "status": "ready"})
             n_papers += 1
 
         n_strategies = 0

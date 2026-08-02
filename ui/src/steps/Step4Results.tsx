@@ -3,6 +3,7 @@ import type { BacktestResult, RunEntry } from '../types'
 import Stage, { type StageState } from '../components/Stage'
 import TradeChart from '../components/TradeChart'
 import EquityChart from '../components/EquityChart'
+import Expandable from '../components/Expandable'
 import TradesTable from '../components/TradesTable'
 import ChatPanel from '../components/ChatPanel'
 
@@ -127,11 +128,13 @@ export default function Step4Results({ state, result, runs, activeRun, onSelectR
           {hasEquity && !chartsDocked && (
             <>
               <span className="section-label">Equity vs buy &amp; hold</span>
-              <EquityChart
-                equity={result.equity_curve!}
-                benchmark={result.benchmark_curve ?? []}
-                drawdown={result.drawdown_curve ?? []}
-              />
+              <Expandable title="Equity vs buy & hold">
+                <EquityChart
+                  equity={result.equity_curve!}
+                  benchmark={result.benchmark_curve ?? []}
+                  drawdown={result.drawdown_curve ?? []}
+                />
+              </Expandable>
             </>
           )}
 
@@ -161,7 +164,9 @@ export default function Step4Results({ state, result, runs, activeRun, onSelectR
                   ))}
                 </div>
               )}
-              <TradeChart series={assetSeries} trades={assetTrades} />
+              <Expandable title={`Market & trades — ${selectedAsset}`}>
+                <TradeChart series={assetSeries} trades={assetTrades} />
+              </Expandable>
             </>
           )}
 

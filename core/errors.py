@@ -24,6 +24,7 @@ ERR_INTERNAL = "internal_error"
 ERR_STRATEGY_RUNTIME = "strategy_runtime_error"
 ERR_NOT_FOUND = "not_found"
 ERR_MISSING_CONTEXT = "missing_context"
+ERR_PAPER_NOT_READY = "paper_not_ready"
 
 
 def raise_http(status: int, code: str, detail: str) -> NoReturn:

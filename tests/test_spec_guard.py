@@ -2,6 +2,7 @@
 from datetime import date
 
 import pytest
+from pydantic import ValidationError
 
 from core.llm.spec_guard import SpecGuardError, validate_spec
 from core.models.strategy import RiskParams, StrategySpec
@@ -88,8 +89,10 @@ def test_empty_conditions_rejected():
 
 
 def test_bad_ticker_rejected():
-    with pytest.raises(SpecGuardError, match="invalid ticker"):
-        validate_spec(make_spec(assets=["spy; drop table"]))
+    # The ticker guard moved to the pydantic layer (shared with PortfolioConfig),
+    # so a bad symbol never survives long enough for validate_spec to see it.
+    with pytest.raises(ValidationError, match="invalid ticker"):
+        make_spec(assets=["spy; drop table"])
 
 
 def test_dotted_ticker_allowed():

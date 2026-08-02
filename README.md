@@ -94,8 +94,9 @@ The UI is a thin client over a JSON API you can drive directly:
 
 | Endpoint | Purpose |
 |----------|---------|
-| `POST /papers/upload` | multipart PDF → parsed paper (`paper_id`) |
-| `POST /papers/url` | `{url}` → parsed paper |
+| `POST /papers/upload` | multipart PDF → `202` + `paper_id`; parsing runs in the background |
+| `POST /papers/url` | `{url}` → `202` + `paper_id`; parsing runs in the background |
+| `GET /papers/{id}` | parse status: `parsing` \| `ready` (sections, length) \| `error` |
 | `GET /papers` | session paper history |
 | `POST /strategies/generate` | `{paper_id}` → `StrategySpec` |
 | `POST /strategies/generate-code` | `{paper_id}` → sandboxed `strategy_code` + `portfolio_config` |
@@ -105,6 +106,7 @@ The UI is a thin client over a JSON API you can drive directly:
 | `POST /chat` | Q&A over a paper and/or a run's strategy (Markdown answers) |
 | `GET /memory` | memory-engine status (counts, semantic search on/off) |
 | `GET /memory/papers`, `GET /memory/strategies` | persisted history, most recent first |
+| `GET /memory/strategies/{id}` | full stored strategy document (spec or code) — powers the UI's history restore |
 | `GET /memory/search?q=&k=` | semantic (embeddings) or keyword recall over stored papers + strategies |
 | `GET /healthz`, `GET /config` | liveness / non-secret runtime config |
 

@@ -45,11 +45,11 @@ dorq/
 ├── main.py                    # FastAPI app, lifespan, router registration, SPA serving
 ├── config.py                  # pydantic-settings Settings class (DORQ_* env)
 ├── api/routes/
-│   ├── papers.py              # POST /papers/upload, POST /papers/url, GET /papers
+│   ├── papers.py              # POST /papers/upload, POST /papers/url (202 + background parse), GET /papers, GET /papers/{id} (status)
 │   ├── strategies.py          # POST /strategies/generate, POST /strategies/generate-code
 │   ├── backtest.py            # POST /backtest/run, GET /backtest, GET /backtest/{id}
 │   ├── chat.py                # POST /chat — Q&A over paper and/or strategy
-│   └── memory.py              # GET /memory, /memory/papers, /memory/strategies, /memory/search
+│   └── memory.py              # GET /memory, /memory/papers, /memory/strategies[/{id}], /memory/search
 ├── core/
 │   ├── errors.py              # error-code constants + raise_http envelope helper
 │   ├── stores.py              # LRUStore — bounded async in-memory stores
@@ -129,7 +129,8 @@ All credentials are read from the server environment via `config.Settings` (pref
 ## Error Handling Conventions
 
 - `raise_http(status, code, detail)` returns a `{"error": code, "detail": detail}` envelope — no raw stack traces.
-- `ValueError("docling_parse_error: ...")` → 422
+- `ValueError("docling_parse_error: ...")` → 422 (invalid upload) or `{"status": "error"}` on `GET /papers/{id}` (background parse failure)
+- Paper still parsing when a route needs it → 409 `"paper_not_ready"`
 - `ValueError("llm_invalid_json")` → 422
 - `ValueError("alpaca_fetch_error: ...")` → 422
 - Alpaca keys unset → 503 `"alpaca_not_configured"`

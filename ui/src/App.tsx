@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { StrategySpec, PortfolioConfig, BacktestResult, RunEntry, ServerConfig } from './types'
+import type {
+  StrategySpec, PortfolioConfig, BacktestResult, RunEntry, ServerConfig,
+  PaperResult, PaperStatus, CodeStrategyResult, MemoryStrategyDoc,
+} from './types'
 import Dither from './components/Dither'
 import BackgroundBoundary from './components/BackgroundBoundary'
-import ArtifactRail from './components/ArtifactRail'
+import ChartWorkspace from './components/ChartWorkspace'
+import HistoryPanel from './components/HistoryPanel'
 import Step1Paper from './steps/Step1Paper'
 import Step2Strategy from './steps/Step2Strategy'
 import Step3Backtest from './steps/Step3Backtest'
@@ -26,6 +30,33 @@ function runLabel(result: BacktestResult): string {
   return assets.length ? assets.slice(0, 3).join(' ') : new Date().toLocaleTimeString()
 }
 
+/** Fetch a ready paper's summary; throws a user-readable error otherwise. */
+async function fetchPaperResult(paperId: string): Promise<PaperResult> {
+  const res = await fetch(`/papers/${encodeURIComponent(paperId)}`)
+  if (!res.ok) {
+    throw new Error(res.status === 404
+      ? 'That paper is no longer loaded on the server.'
+      : 'Could not load the paper.')
+  }
+  const st: PaperStatus = await res.json()
+  if (st.status !== 'ready') throw new Error('That paper has not finished parsing.')
+  return {
+    paper_id: st.paper_id,
+    filename: st.filename ?? undefined,
+    source_url: st.source_url ?? undefined,
+    sections_found: st.sections_found ?? [],
+    markdown_length: st.markdown_length ?? 0,
+  }
+}
+
+/** State injected into the steps when the user reopens an item from history. */
+interface Restored {
+  paper: PaperResult | null
+  spec: StrategySpec | null
+  code: CodeStrategyResult | null
+}
+const NOTHING_RESTORED: Restored = { paper: null, spec: null, code: null }
+
 export default function App() {
   // Dark-first: honour a stored choice, otherwise default to dark.
   const [light, setLight] = useState(() => {
@@ -40,6 +71,9 @@ export default function App() {
   const [strategySpec, setStrategySpec] = useState<StrategySpec | null>(null)
   const [portfolioConfig, setPortfolioConfig] = useState<PortfolioConfig | null>(null)
   const [strategyCode, setStrategyCode] = useState<string | null>(null)
+
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [restored, setRestored] = useState<Restored>(NOTHING_RESTORED)
 
   // Every completed backtest in this session; the user flips between them
   // in the results step to compare parameter tweaks. Kept as one object so
@@ -74,6 +108,7 @@ export default function App() {
     setStrategyCode(null)
     setStrategyMode('spec')
     setRunState({ runs: [], active: 0 })
+    setRestored(NOTHING_RESTORED)
     setSessionKey(k => k + 1)
   }, [])
 
@@ -102,10 +137,60 @@ export default function App() {
     setRunState(prev => ({ ...prev, active: idx }))
   }, [])
 
+  /** Reopen a previously parsed paper at step 2. */
+  const handleRestorePaper = useCallback(async (id: string) => {
+    const paper = await fetchPaperResult(id)
+    setPaperId(paper.paper_id)
+    setStrategyMode('spec')
+    setStrategySpec(null)
+    setPortfolioConfig(null)
+    setStrategyCode(null)
+    setRunState({ runs: [], active: 0 })
+    setRestored({ paper, spec: null, code: null })
+    setSessionKey(k => k + 1)
+    setHistoryOpen(false)
+  }, [])
+
+  /** Reopen a previously generated strategy (and its paper) at step 3. */
+  const handleRestoreStrategy = useCallback(async (strategyId: string) => {
+    const res = await fetch(`/memory/strategies/${encodeURIComponent(strategyId)}`)
+    if (!res.ok) throw new Error('Could not load that strategy from memory.')
+    const doc: MemoryStrategyDoc = await res.json()
+
+    // Best effort — the strategy is still usable if its paper fell out of
+    // the session store (only regenerate/chat need the paper text).
+    let paper: PaperResult
+    try {
+      paper = await fetchPaperResult(doc.paper_id)
+    } catch {
+      paper = { paper_id: doc.paper_id, sections_found: [], markdown_length: 0 }
+    }
+
+    if (doc.kind === 'spec' && doc.spec) {
+      setStrategyMode('spec')
+      setStrategySpec(doc.spec)
+      setPortfolioConfig(null)
+      setStrategyCode(null)
+      setRestored({ paper, spec: doc.spec, code: null })
+    } else if (doc.kind === 'code' && doc.strategy_code && doc.portfolio_config) {
+      setStrategyMode('code')
+      setStrategySpec(null)
+      setPortfolioConfig(doc.portfolio_config)
+      setStrategyCode(doc.strategy_code)
+      setRestored({ paper, spec: null, code: { strategy_code: doc.strategy_code, portfolio_config: doc.portfolio_config } })
+    } else {
+      throw new Error('That stored strategy is incomplete and cannot be restored.')
+    }
+    setPaperId(doc.paper_id)
+    setRunState({ runs: [], active: 0 })
+    setSessionKey(k => k + 1)
+    setHistoryOpen(false)
+  }, [])
+
   const hasStrategy = strategySpec !== null || strategyCode !== null
 
-  // On wide viewports the charts undock from the results card into a side
-  // artifact rail (720px shell + 400px rail + gaps needs ~1200px).
+  // On wide viewports the charts undock from the results card into the
+  // chart workspace filling the right half of the screen.
   const wide = useMediaQuery('(min-width: 1200px)')
   const chartsDocked = wide && backtestResult !== null
 
@@ -140,6 +225,13 @@ export default function App() {
                 {config.ollama_model || 'no model set'} · ollama
               </span>
             )}
+            <button
+              className="icon-btn text-btn"
+              onClick={() => setHistoryOpen(true)}
+              title="Reopen an earlier paper or strategy"
+            >
+              history
+            </button>
             {paperId && (
               <button className="icon-btn text-btn" onClick={handleReset} title="Start over with a new paper">
                 new paper
@@ -154,11 +246,13 @@ export default function App() {
         <div className={`content-row${chartsDocked ? ' has-rail' : ''}`}>
           <main className="stage-wrap">
             <div className="pipeline" key={sessionKey}>
-              <Step1Paper state={s1} onDone={handleStep1Done} />
+              <Step1Paper state={s1} onDone={handleStep1Done} initialResult={restored.paper} />
               <Step2Strategy
                 state={s2}
                 paperId={paperId}
                 onDone={handleStep2Done}
+                initialSpec={restored.spec}
+                initialCode={restored.code}
               />
               <Step3Backtest
                 state={s3}
@@ -182,10 +276,17 @@ export default function App() {
             </div>
           </main>
           {chartsDocked && backtestResult && (
-            <ArtifactRail key={backtestResult.backtest_id} result={backtestResult} />
+            <ChartWorkspace result={backtestResult} />
           )}
         </div>
       </div>
+
+      <HistoryPanel
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onRestorePaper={handleRestorePaper}
+        onRestoreStrategy={handleRestoreStrategy}
+      />
     </>
   )
 }

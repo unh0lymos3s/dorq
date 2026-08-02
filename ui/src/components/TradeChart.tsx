@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { PricePoint, TradeMarker } from '../types'
+import { useZoomPan, ZoomControls } from '../lib/useZoomPan'
 
 interface Props {
   series: PricePoint[]
@@ -25,11 +26,6 @@ function formatDateTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-const EXPAND_ICON = (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3" />
-  </svg>
-)
 const CLOSE_ICON = (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M18 6L6 18M6 6l12 12" />
@@ -38,15 +34,7 @@ const CLOSE_ICON = (
 
 export default function TradeChart({ series, trades }: Props) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
-  const [fullscreen, setFullscreen] = useState(false)
   const [selectedTrade, setSelectedTrade] = useState<TradeMarker | null>(null)
-
-  useEffect(() => {
-    if (!fullscreen) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setFullscreen(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [fullscreen])
 
   useEffect(() => {
     if (!selectedTrade) return
@@ -55,8 +43,11 @@ export default function TradeChart({ series, trades }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [selectedTrade])
 
-  const times = useMemo(() => series.map(p => new Date(p.t).getTime()), [series])
-  const prices = useMemo(() => series.map(p => p.c), [series])
+  const zoom = useZoomPan(series.length)
+  const view = useMemo(() => series.slice(zoom.a, zoom.b + 1), [series, zoom.a, zoom.b])
+
+  const times = useMemo(() => view.map(p => new Date(p.t).getTime()), [view])
+  const prices = useMemo(() => view.map(p => p.c), [view])
 
   const { min, max } = useMemo(() => {
     if (prices.length === 0) return { min: 0, max: 1 }
@@ -66,14 +57,22 @@ export default function TradeChart({ series, trades }: Props) {
     return { min: lo - pad, max: hi + pad }
   }, [prices])
 
-  const n = series.length
+  const n = view.length
   const x = (i: number) => (n <= 1 ? PAD_L : PAD_L + (i / (n - 1)) * (W - PAD_L - PAD_R))
   const y = (price: number) => PAD_T + (1 - (price - min) / (max - min || 1)) * (H - PAD_T - PAD_B)
 
   const linePath = useMemo(() => {
     if (n === 0) return ''
-    return series.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(2)},${y(p.c).toFixed(2)}`).join(' ')
-  }, [series, min, max]) // eslint-disable-line react-hooks/exhaustive-deps
+    return view.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(2)},${y(p.c).toFixed(2)}`).join(' ')
+  }, [view, min, max]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Visible time bounds — markers outside the zoom window are skipped.
+  const tMin = times.length ? times[0] : 0
+  const tMax = times.length ? times[times.length - 1] : 0
+  const inWindow = (iso: string): boolean => {
+    const t = new Date(iso).getTime()
+    return t >= tMin && t <= tMax
+  }
 
   const indexForTime = (iso: string): number => {
     const target = new Date(iso).getTime()
@@ -101,6 +100,7 @@ export default function TradeChart({ series, trades }: Props) {
   }, [n])
 
   const onMove = (e: ReactPointerEvent<SVGRectElement>) => {
+    if (zoom.onPointerMove(e)) { setHoverIdx(null); return }
     if (n === 0) return
     const rect = e.currentTarget.getBoundingClientRect()
     const t = (e.clientX - rect.left) / rect.width
@@ -108,95 +108,11 @@ export default function TradeChart({ series, trades }: Props) {
     setHoverIdx(Math.max(0, Math.min(n - 1, idx)))
   }
 
-  if (n === 0) {
+  if (series.length === 0) {
     return <div className="empty">No market data to chart</div>
   }
 
-  const hover = hoverIdx != null ? series[hoverIdx] : null
-
-  const renderChart = (isFullscreen: boolean) => (
-    <>
-      <svg viewBox={`0 0 ${W} ${H}`} className={`trade-chart-svg${isFullscreen ? ' is-fullscreen' : ''}`} preserveAspectRatio="none">
-        {yTicks.map((price, i) => (
-          <g key={i}>
-            <line x1={PAD_L} x2={W - PAD_R} y1={y(price)} y2={y(price)} className="tc-grid" />
-            <text x={PAD_L - 8} y={y(price)} className="tc-axis-label" textAnchor="end" dominantBaseline="middle">
-              {price.toFixed(price >= 100 ? 0 : 2)}
-            </text>
-          </g>
-        ))}
-
-        {xTickIdx.map(i => (
-          <text key={i} x={x(i)} y={H - 6} className="tc-axis-label" textAnchor="middle">
-            {formatDate(series[i].t)}
-          </text>
-        ))}
-
-        <path d={linePath} className="tc-price-line" fill="none" />
-
-        {trades.map((t, i) => {
-          const ei = indexForTime(t.entry_time)
-          if (ei < 0) return null
-          const ex = x(ei)
-          const ey = y(t.entry_price)
-          const win = (t.pnl ?? 0) >= 0
-          const closed = t.status === 'closed' && t.exit_time && t.exit_price != null
-          const xi = closed ? indexForTime(t.exit_time as string) : -1
-          const xx = closed && xi >= 0 ? x(xi) : null
-          const xy = closed && t.exit_price != null ? y(t.exit_price) : null
-
-          return (
-            <g
-              key={i}
-              className={`tc-trade${win ? ' is-win' : ' is-loss'}`}
-              onClick={() => setSelectedTrade(t)}
-              tabIndex={0}
-              role="button"
-              aria-label={`${t.asset} ${t.side} trade details`}
-            >
-              <circle cx={ex} cy={ey} r={9} className="tc-trade-hit" />
-              {xx != null && xy != null && <circle cx={xx} cy={xy} r={9} className="tc-trade-hit" />}
-              {xx != null && xy != null && (
-                <line x1={ex} y1={ey} x2={xx} y2={xy} className="tc-trade-link" />
-              )}
-              <path
-                d={t.side === 'long' ? `M${ex},${ey - 5} L${ex - 4.5},${ey + 4} L${ex + 4.5},${ey + 4} Z` : `M${ex},${ey + 5} L${ex - 4.5},${ey - 4} L${ex + 4.5},${ey - 4} Z`}
-                className="tc-marker tc-marker-entry"
-              />
-              {xx != null && xy != null && (
-                <circle cx={xx} cy={xy} r={3.4} className="tc-marker tc-marker-exit" />
-              )}
-            </g>
-          )
-        })}
-
-        {hover && (
-          <line x1={x(hoverIdx!)} x2={x(hoverIdx!)} y1={PAD_T} y2={H - PAD_B} className="tc-crosshair" />
-        )}
-
-        <rect
-          x={PAD_L} y={PAD_T} width={W - PAD_L - PAD_R} height={H - PAD_T - PAD_B}
-          fill="transparent"
-          onPointerMove={onMove}
-          onPointerLeave={() => setHoverIdx(null)}
-        />
-      </svg>
-
-      {hover && (
-        <div className="tc-tooltip" style={{ left: `${(x(hoverIdx!) / W) * 100}%` }}>
-          <span className="tc-tooltip-date">{formatDate(hover.t)}</span>
-          <span className="tc-tooltip-price">{hover.c.toFixed(2)}</span>
-        </div>
-      )}
-
-      <div className="tc-legend">
-        <span><i className="tc-swatch tc-swatch-entry" /> entry</span>
-        <span><i className="tc-swatch tc-swatch-exit" /> exit</span>
-        <span><i className="tc-swatch tc-swatch-win" /> win</span>
-        <span><i className="tc-swatch tc-swatch-loss" /> loss</span>
-      </div>
-    </>
-  )
+  const hover = hoverIdx != null && hoverIdx < n ? view[hoverIdx] : null
 
   const tradeModal = selectedTrade && createPortal(
     <div className="tc-modal-overlay" onClick={() => setSelectedTrade(null)}>
@@ -237,27 +153,95 @@ export default function TradeChart({ series, trades }: Props) {
     document.body,
   )
 
-  const fullscreenOverlay = fullscreen && createPortal(
-    <div className="tc-fullscreen-overlay" onClick={() => setFullscreen(false)}>
-      <div className="tc-fullscreen-panel" onClick={e => e.stopPropagation()}>
-        <button className="tc-close-btn tc-fullscreen-close" onClick={() => setFullscreen(false)} aria-label="Exit fullscreen">
-          {CLOSE_ICON}
-        </button>
-        <div className="trade-chart is-fullscreen">
-          {renderChart(true)}
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-
   return (
-    <div className="trade-chart">
-      <button className="tc-expand-btn" onClick={() => setFullscreen(true)} aria-label="Expand chart to fullscreen">
-        {EXPAND_ICON}
-      </button>
-      {renderChart(false)}
-      {fullscreenOverlay}
+    <div className={`trade-chart${zoom.zoomed ? ' is-zoomed' : ''}`} ref={zoom.containerRef}>
+      <ZoomControls zoom={zoom} />
+      <svg viewBox={`0 0 ${W} ${H}`} className="trade-chart-svg" preserveAspectRatio="none">
+        {yTicks.map((price, i) => (
+          <g key={i}>
+            <line x1={PAD_L} x2={W - PAD_R} y1={y(price)} y2={y(price)} className="tc-grid" />
+            <text x={PAD_L - 8} y={y(price)} className="tc-axis-label" textAnchor="end" dominantBaseline="middle">
+              {price.toFixed(price >= 100 ? 0 : 2)}
+            </text>
+          </g>
+        ))}
+
+        {xTickIdx.map(i => (
+          <text key={i} x={x(i)} y={H - 6} className="tc-axis-label" textAnchor="middle">
+            {formatDate(view[i].t)}
+          </text>
+        ))}
+
+        <path d={linePath} className="tc-price-line" fill="none" />
+
+        {trades.map((t, i) => {
+          if (!inWindow(t.entry_time)) return null
+          const ei = indexForTime(t.entry_time)
+          if (ei < 0) return null
+          const ex = x(ei)
+          const ey = y(t.entry_price)
+          const win = (t.pnl ?? 0) >= 0
+          const closed = t.status === 'closed' && t.exit_time && t.exit_price != null
+          const exitVisible = closed && inWindow(t.exit_time as string)
+          const xi = exitVisible ? indexForTime(t.exit_time as string) : -1
+          const xx = exitVisible && xi >= 0 ? x(xi) : null
+          const xy = exitVisible && t.exit_price != null ? y(t.exit_price) : null
+
+          return (
+            <g
+              key={i}
+              className={`tc-trade${win ? ' is-win' : ' is-loss'}`}
+              onClick={() => setSelectedTrade(t)}
+              tabIndex={0}
+              role="button"
+              aria-label={`${t.asset} ${t.side} trade details`}
+            >
+              <circle cx={ex} cy={ey} r={9} className="tc-trade-hit" />
+              {xx != null && xy != null && <circle cx={xx} cy={xy} r={9} className="tc-trade-hit" />}
+              {xx != null && xy != null && (
+                <line x1={ex} y1={ey} x2={xx} y2={xy} className="tc-trade-link" />
+              )}
+              <path
+                d={t.side === 'long' ? `M${ex},${ey - 5} L${ex - 4.5},${ey + 4} L${ex + 4.5},${ey + 4} Z` : `M${ex},${ey + 5} L${ex - 4.5},${ey - 4} L${ex + 4.5},${ey - 4} Z`}
+                className="tc-marker tc-marker-entry"
+              />
+              {xx != null && xy != null && (
+                <circle cx={xx} cy={xy} r={3.4} className="tc-marker tc-marker-exit" />
+              )}
+            </g>
+          )
+        })}
+
+        {hover && (
+          <line x1={x(hoverIdx!)} x2={x(hoverIdx!)} y1={PAD_T} y2={H - PAD_B} className="tc-crosshair" />
+        )}
+
+        <rect
+          x={PAD_L} y={PAD_T} width={W - PAD_L - PAD_R} height={H - PAD_T - PAD_B}
+          fill="transparent"
+          onPointerDown={zoom.onPointerDown}
+          onPointerUp={zoom.onPointerUp}
+          onPointerMove={onMove}
+          onPointerLeave={() => { zoom.onPointerUp(); setHoverIdx(null) }}
+          onDoubleClick={zoom.reset}
+        />
+      </svg>
+
+      {hover && (
+        <div className="tc-tooltip" style={{ left: `${(x(hoverIdx!) / W) * 100}%` }}>
+          <span className="tc-tooltip-date">{formatDate(hover.t)}</span>
+          <span className="tc-tooltip-price">{hover.c.toFixed(2)}</span>
+        </div>
+      )}
+
+      <div className="tc-legend">
+        <span><i className="tc-swatch tc-swatch-entry" /> entry</span>
+        <span><i className="tc-swatch tc-swatch-exit" /> exit</span>
+        <span><i className="tc-swatch tc-swatch-win" /> win</span>
+        <span><i className="tc-swatch tc-swatch-loss" /> loss</span>
+        <span className="tc-zoom-hint">scroll to zoom · drag to pan</span>
+      </div>
+
       {tradeModal}
     </div>
   )

@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import date
 
 import pandas as pd
@@ -14,6 +15,14 @@ def _timeframe_to_alpaca(timeframe: str):
     return tf
 
 
+def _api_error_detail(exc: Exception) -> str:
+    """Alpaca's APIError stringifies to a raw JSON body — pull out the message."""
+    try:
+        return json.loads(str(exc)).get("message") or str(exc)
+    except (json.JSONDecodeError, TypeError):
+        return str(exc)
+
+
 def _fetch(
     assets: list[str],
     start: date,
@@ -22,8 +31,10 @@ def _fetch(
     api_key: str,
     secret_key: str,
 ) -> dict[str, pd.DataFrame]:
+    from alpaca.common.exceptions import APIError
     from alpaca.data.historical import StockHistoricalDataClient
     from alpaca.data.requests import StockBarsRequest
+    from requests.exceptions import RequestException
 
     client = StockHistoricalDataClient(api_key, secret_key)
     req = StockBarsRequest(
@@ -32,7 +43,14 @@ def _fetch(
         start=str(start),
         end=str(end),
     )
-    df = client.get_stock_bars(req).df
+    try:
+        df = client.get_stock_bars(req).df
+    except APIError as exc:
+        # Keep the error-envelope contract: SDK failures (invalid symbol, bad
+        # keys, rate limit) surface as 422 alpaca_fetch_error, never a raw 500.
+        raise ValueError(f"alpaca_fetch_error: {_api_error_detail(exc)}") from exc
+    except RequestException as exc:
+        raise ValueError(f"alpaca_fetch_error: could not reach Alpaca ({exc.__class__.__name__})") from exc
 
     result: dict[str, pd.DataFrame] = {}
     for symbol in assets:

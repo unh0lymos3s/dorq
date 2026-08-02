@@ -6,6 +6,18 @@ export interface PaperResult {
   markdown_length: number
 }
 
+/** GET /papers/{id} — background-parse status. When status is 'ready' the
+ *  payload is a superset of PaperResult. */
+export interface PaperStatus {
+  paper_id: string
+  status: 'parsing' | 'ready' | 'error'
+  filename?: string | null
+  source_url?: string | null
+  sections_found?: string[]
+  markdown_length?: number
+  error?: string
+}
+
 export interface RiskParams {
   stop_loss_pct?: number | null
   take_profit_pct?: number | null
@@ -92,6 +104,40 @@ export interface ChatMessage {
 }
 
 export type GenerateMode = 'spec' | 'code'
+
+/** GET /memory/papers — persisted paper summary. */
+export interface MemoryPaper {
+  paper_id: string
+  filename: string | null
+  source_url: string | null
+  uploaded_at: string | null
+  saved_at: string | null
+  markdown_length: number
+  embedded: boolean
+}
+
+/** GET /memory/strategies — persisted strategy summary. */
+export interface MemoryStrategy {
+  strategy_id: string
+  paper_id: string
+  kind: 'spec' | 'code'
+  saved_at: string | null
+  title: string | null
+  assets: string[] | null
+  timeframe: string | null
+  embedded: boolean
+}
+
+/** GET /memory/strategies/{id} — full persisted strategy document. */
+export interface MemoryStrategyDoc {
+  strategy_id: string
+  paper_id: string
+  kind: 'spec' | 'code'
+  saved_at: string | null
+  spec: StrategySpec | null
+  strategy_code: string | null
+  portfolio_config: PortfolioConfig | null
+}
 
 export interface ServerConfig {
   ollama_model: string

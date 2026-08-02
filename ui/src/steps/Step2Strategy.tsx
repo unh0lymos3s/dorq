@@ -12,6 +12,10 @@ interface Props {
     config: PortfolioConfig | null,
     code: string | null,
   ) => void
+  /** Strategy injected when the user reopens one from history — App has
+   *  already published it upward, so no onDone call is needed on mount. */
+  initialSpec?: StrategySpec | null
+  initialCode?: CodeStrategyResult | null
 }
 
 /** One condition per line ⇄ list of condition strings. */
@@ -23,16 +27,16 @@ function indicatorLabel(name: string, params: Record<string, unknown>): string {
   return values.length ? `${name} ${values.join('/')}` : name
 }
 
-export default function Step2Strategy({ state, paperId, onDone }: Props) {
-  const [tab, setTab] = useState<'spec' | 'code'>('spec')
+export default function Step2Strategy({ state, paperId, onDone, initialSpec = null, initialCode = null }: Props) {
+  const [tab, setTab] = useState<'spec' | 'code'>(initialCode ? 'code' : 'spec')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [specResult, setSpecResult] = useState<StrategySpec | null>(null)
-  const [codeResult, setCodeResult] = useState<CodeStrategyResult | null>(null)
+  const [specResult, setSpecResult] = useState<StrategySpec | null>(initialSpec)
+  const [codeResult, setCodeResult] = useState<CodeStrategyResult | null>(initialCode)
   // Raw textarea contents so the user can have blank lines mid-edit; the
   // parsed conditions flow upward on every keystroke.
-  const [entryText, setEntryText] = useState('')
-  const [exitText, setExitText] = useState('')
+  const [entryText, setEntryText] = useState(initialSpec ? toLines(initialSpec.entry_conditions) : '')
+  const [exitText, setExitText] = useState(initialSpec ? toLines(initialSpec.exit_conditions) : '')
 
   const publishSpec = useCallback((spec: StrategySpec) => {
     setSpecResult(spec)

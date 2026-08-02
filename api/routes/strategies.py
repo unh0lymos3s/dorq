@@ -8,6 +8,7 @@ from core.errors import (
     ERR_DOCLING_PARSE,
     ERR_LLM_INVALID_JSON,
     ERR_OLLAMA_NOT_CONFIGURED,
+    ERR_PAPER_NOT_READY,
     ERR_STRATEGY_RUNTIME,
     raise_http,
 )
@@ -28,17 +29,28 @@ class GenerateRequest(BaseModel):
     paper_id: str
 
 
+async def _get_parsed_paper(request: Request, paper_id: str, log_tag: str):
+    """Fetch a paper entry and require its background parse to be finished."""
+    entry = await request.app.state.papers.get(paper_id)
+    if entry is None:
+        logger.info("%s not_found paper_id=%s", log_tag, paper_id)
+        raise_http(status.HTTP_404_NOT_FOUND, "not_found", f"paper {paper_id!r} not found")
+    parsed = entry.get("parsed")
+    if parsed is None:
+        paper_status = entry.get("status", "parsing")
+        logger.info("%s not_ready paper_id=%s status=%s", log_tag, paper_id, paper_status)
+        raise_http(status.HTTP_409_CONFLICT, ERR_PAPER_NOT_READY,
+                   "paper is still parsing" if paper_status == "parsing"
+                   else "paper parsing failed — upload it again")
+    return parsed
+
+
 @router.post("/generate")
 async def generate_strategy_route(request: Request, body: GenerateRequest):
     _require_model()
     logger.info("strategy.generate paper_id=%s", body.paper_id)
 
-    entry = await request.app.state.papers.get(body.paper_id)
-    if entry is None:
-        logger.info("strategy.generate not_found paper_id=%s", body.paper_id)
-        raise_http(status.HTTP_404_NOT_FOUND, "not_found", f"paper {body.paper_id!r} not found")
-
-    parsed = entry["parsed"]
+    parsed = await _get_parsed_paper(request, body.paper_id, "strategy.generate")
 
     try:
         spec = await generate_strategy(parsed)
@@ -73,12 +85,7 @@ async def generate_code_strategy_route(request: Request, body: GenerateRequest):
     _require_model()
     logger.info("strategy.generate_code paper_id=%s", body.paper_id)
 
-    entry = await request.app.state.papers.get(body.paper_id)
-    if entry is None:
-        logger.info("strategy.generate_code not_found paper_id=%s", body.paper_id)
-        raise_http(status.HTTP_404_NOT_FOUND, "not_found", f"paper {body.paper_id!r} not found")
-
-    parsed = entry["parsed"]
+    parsed = await _get_parsed_paper(request, body.paper_id, "strategy.generate_code")
 
     try:
         code, config = await generate_code_strategy(parsed)

@@ -1,11 +1,16 @@
+import re
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 IndicatorParam = float | int | str | bool
 Timeframe = Literal["1D", "1W", "1M"]
 PositionSizing = Literal["equal_weight", "fixed", "percent_equity"]
+
+# US-equity ticker shape, the only thing Alpaca can serve. Rejects FX/crypto
+# forms an LLM may hallucinate from a paper (EURUSD=X, BTC-USD/USD, ^GSPC).
+TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
 
 
 class IndicatorDef(BaseModel):
@@ -28,6 +33,18 @@ class _PortfolioBase(BaseModel):
     position_sizing: PositionSizing
     risk_params: RiskParams
     init_cash: float = Field(default=100_000.0, gt=0)
+
+    @field_validator("assets")
+    @classmethod
+    def _check_tickers(cls, assets: list[str]) -> list[str]:
+        normalized = [a.strip().upper() for a in assets]
+        for asset in normalized:
+            if not TICKER_RE.match(asset):
+                raise ValueError(
+                    f"invalid ticker {asset!r} — assets must be US-exchange symbols "
+                    "like SPY or BRK.B (forex/crypto pairs are not tradeable here)"
+                )
+        return normalized
 
     @model_validator(mode="after")
     def _check_date_range(self) -> "_PortfolioBase":

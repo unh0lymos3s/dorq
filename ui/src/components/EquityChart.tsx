@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import type { CurvePoint } from '../types'
+import { useZoomPan, ZoomControls } from '../lib/useZoomPan'
 
 interface Props {
   equity: CurvePoint[]
   benchmark: CurvePoint[]
   drawdown: CurvePoint[]
+  /** 'full' renders the drawdown strip under the equity chart (default);
+   *  'equity' omits it — the workspace gives drawdown its own panel. */
+  variant?: 'full' | 'equity'
 }
 
 const W = 760
@@ -47,25 +51,31 @@ function alignTo(times: number[], curve: CurvePoint[]): (number | null)[] {
 
 /**
  * Portfolio equity vs. equal-weight buy-and-hold, with a drawdown strip
- * underneath. Pure SVG, same visual language as TradeChart.
+ * underneath. Pure SVG, same visual language as TradeChart. Wheel zooms,
+ * drag pans when zoomed.
  */
-export default function EquityChart({ equity, benchmark, drawdown }: Props) {
+export default function EquityChart({ equity, benchmark, drawdown, variant = 'full' }: Props) {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
 
-  const times = useMemo(() => equity.map(p => new Date(p.t).getTime()), [equity])
-  const benchAligned = useMemo(() => alignTo(times, benchmark), [times, benchmark])
-  const ddAligned = useMemo(() => alignTo(times, drawdown), [times, drawdown])
+  const allTimes = useMemo(() => equity.map(p => new Date(p.t).getTime()), [equity])
+  const benchAll = useMemo(() => alignTo(allTimes, benchmark), [allTimes, benchmark])
+  const ddAll = useMemo(() => alignTo(allTimes, drawdown), [allTimes, drawdown])
 
-  const n = equity.length
+  const zoom = useZoomPan(equity.length)
+  const view = useMemo(() => equity.slice(zoom.a, zoom.b + 1), [equity, zoom.a, zoom.b])
+  const benchAligned = useMemo(() => benchAll.slice(zoom.a, zoom.b + 1), [benchAll, zoom.a, zoom.b])
+  const ddAligned = useMemo(() => ddAll.slice(zoom.a, zoom.b + 1), [ddAll, zoom.a, zoom.b])
+
+  const n = view.length
 
   const { min, max } = useMemo(() => {
-    const values = equity.map(p => p.v).concat(benchAligned.filter((v): v is number => v != null))
+    const values = view.map(p => p.v).concat(benchAligned.filter((v): v is number => v != null))
     if (values.length === 0) return { min: 0, max: 1 }
     const lo = Math.min(...values)
     const hi = Math.max(...values)
     const pad = (hi - lo) * 0.06 || hi * 0.02 || 1
     return { min: lo - pad, max: hi + pad }
-  }, [equity, benchAligned])
+  }, [view, benchAligned])
 
   const ddMin = useMemo(() => {
     const values = ddAligned.filter((v): v is number => v != null)
@@ -89,8 +99,8 @@ export default function EquityChart({ equity, benchmark, drawdown }: Props) {
   }
 
   const equityPath = useMemo(
-    () => buildPath(equity.map(p => p.v), y),
-    [equity, min, max], // eslint-disable-line react-hooks/exhaustive-deps
+    () => buildPath(view.map(p => p.v), y),
+    [view, min, max], // eslint-disable-line react-hooks/exhaustive-deps
   )
   const benchPath = useMemo(
     () => buildPath(benchAligned, y),
@@ -115,20 +125,22 @@ export default function EquityChart({ equity, benchmark, drawdown }: Props) {
   }, [n])
 
   const onMove = (e: ReactPointerEvent<SVGRectElement>) => {
+    if (zoom.onPointerMove(e)) { setHoverIdx(null); return }
     if (n === 0) return
     const rect = e.currentTarget.getBoundingClientRect()
     const t = (e.clientX - rect.left) / rect.width
     setHoverIdx(Math.max(0, Math.min(n - 1, Math.round(t * (n - 1)))))
   }
 
-  if (n === 0) return <div className="empty">No equity data</div>
+  if (equity.length === 0) return <div className="empty">No equity data</div>
 
-  const hover = hoverIdx != null ? equity[hoverIdx] : null
-  const hoverBench = hoverIdx != null ? benchAligned[hoverIdx] : null
-  const hoverDd = hoverIdx != null ? ddAligned[hoverIdx] : null
+  const hover = hoverIdx != null && hoverIdx < n ? view[hoverIdx] : null
+  const hoverBench = hover && hoverIdx != null ? benchAligned[hoverIdx] : null
+  const hoverDd = hover && hoverIdx != null ? ddAligned[hoverIdx] : null
 
   return (
-    <div className="equity-chart">
+    <div className={`equity-chart${zoom.zoomed ? ' is-zoomed' : ''}`} ref={zoom.containerRef}>
+      <ZoomControls zoom={zoom} />
       <svg viewBox={`0 0 ${W} ${H}`} className="equity-chart-svg" preserveAspectRatio="none">
         {yTicks.map((v, i) => (
           <g key={i}>
@@ -140,7 +152,7 @@ export default function EquityChart({ equity, benchmark, drawdown }: Props) {
         ))}
         {xTickIdx.map(i => (
           <text key={i} x={x(i)} y={H - 6} className="tc-axis-label" textAnchor="middle">
-            {formatDate(equity[i].t)}
+            {formatDate(view[i].t)}
           </text>
         ))}
 
@@ -153,36 +165,42 @@ export default function EquityChart({ equity, benchmark, drawdown }: Props) {
         <rect
           x={PAD_L} y={PAD_T} width={W - PAD_L - PAD_R} height={H - PAD_T - PAD_B}
           fill="transparent"
+          onPointerDown={zoom.onPointerDown}
+          onPointerUp={zoom.onPointerUp}
           onPointerMove={onMove}
-          onPointerLeave={() => setHoverIdx(null)}
+          onPointerLeave={() => { zoom.onPointerUp(); setHoverIdx(null) }}
+          onDoubleClick={zoom.reset}
         />
       </svg>
 
-      <svg viewBox={`0 0 ${W} ${DD_H}`} className="equity-dd-svg" preserveAspectRatio="none" aria-label="Drawdown">
-        <line x1={PAD_L} x2={W - PAD_R} y1={ddY(0)} y2={ddY(0)} className="tc-grid" />
-        <text x={PAD_L - 8} y={ddY(0)} className="tc-axis-label" textAnchor="end" dominantBaseline="middle">0</text>
-        <text x={PAD_L - 8} y={ddY(ddMin)} className="tc-axis-label" textAnchor="end" dominantBaseline="middle">
-          {ddMin.toFixed(0)}%
-        </text>
-        <path d={ddArea} className="ec-dd-area" />
-        {hover && (
-          <line x1={x(hoverIdx!)} x2={x(hoverIdx!)} y1={0} y2={DD_H} className="tc-crosshair" />
-        )}
-      </svg>
+      {variant === 'full' && (
+        <svg viewBox={`0 0 ${W} ${DD_H}`} className="equity-dd-svg" preserveAspectRatio="none" aria-label="Drawdown">
+          <line x1={PAD_L} x2={W - PAD_R} y1={ddY(0)} y2={ddY(0)} className="tc-grid" />
+          <text x={PAD_L - 8} y={ddY(0)} className="tc-axis-label" textAnchor="end" dominantBaseline="middle">0</text>
+          <text x={PAD_L - 8} y={ddY(ddMin)} className="tc-axis-label" textAnchor="end" dominantBaseline="middle">
+            {ddMin.toFixed(0)}%
+          </text>
+          <path d={ddArea} className="ec-dd-area" />
+          {hover && (
+            <line x1={x(hoverIdx!)} x2={x(hoverIdx!)} y1={0} y2={DD_H} className="tc-crosshair" />
+          )}
+        </svg>
+      )}
 
       {hover && (
         <div className="tc-tooltip" style={{ left: `${(x(hoverIdx!) / W) * 100}%` }}>
           <span className="tc-tooltip-date">{formatDate(hover.t)}</span>
           <span className="tc-tooltip-price">{formatMoney(hover.v)}</span>
           {hoverBench != null && <span className="ec-tooltip-bench">bh {formatMoney(hoverBench)}</span>}
-          {hoverDd != null && <span className="ec-tooltip-dd">{hoverDd.toFixed(1)}%</span>}
+          {hoverDd != null && variant === 'full' && <span className="ec-tooltip-dd">{hoverDd.toFixed(1)}%</span>}
         </div>
       )}
 
       <div className="tc-legend">
         <span><i className="tc-swatch ec-swatch-equity" /> strategy equity</span>
         <span><i className="tc-swatch ec-swatch-bench" /> buy &amp; hold</span>
-        <span><i className="tc-swatch ec-swatch-dd" /> drawdown</span>
+        {variant === 'full' && <span><i className="tc-swatch ec-swatch-dd" /> drawdown</span>}
+        <span className="tc-zoom-hint">scroll to zoom · drag to pan</span>
       </div>
     </div>
   )
