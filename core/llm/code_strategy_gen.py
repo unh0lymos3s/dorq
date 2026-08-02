@@ -3,6 +3,7 @@ import logging
 
 from pydantic import ValidationError
 
+from core.backtest.validator import validate_strategy_code
 from core.llm._utils import _strip_fences
 from core.llm.client import build_litellm_kwargs, complete
 from core.llm.code_prompts import CODE_RETRY_PREFIX, CODE_SYSTEM_PROMPT, CODE_USER_PROMPT_TEMPLATE
@@ -26,6 +27,13 @@ def _parse_code_response(content: str) -> tuple[str, PortfolioConfig]:
     if pc is None:
         raise TypeError("missing portfolio_config field")
     portfolio_config = PortfolioConfig.model_validate(pc)
+    # Run the AST sandbox allowlist at generation time so forbidden constructs
+    # (imports, dunders, IO attributes) trigger a retry with feedback instead
+    # of surfacing later when the user runs the backtest.
+    try:
+        validate_strategy_code(strategy_code)
+    except ValueError as exc:
+        raise TypeError(f"strategy_code rejected by sandbox validator: {exc}") from exc
     return strategy_code, portfolio_config
 
 
@@ -51,8 +59,9 @@ async def generate_code_strategy(parsed_paper: ParsedPaper) -> tuple[str, Portfo
         content = await complete(messages, **kwargs)
         try:
             return _parse_code_response(content)
-        except ValueError:
-            raise  # LLM declined — do not retry
+        # JSONDecodeError subclasses ValueError, so the retryable clause must
+        # come first — a bare `except ValueError` would swallow it and skip
+        # the retry.
         except (json.JSONDecodeError, ValidationError, TypeError, KeyError) as exc:
             last_exc = exc
             logger.warning(
@@ -61,5 +70,11 @@ async def generate_code_strategy(parsed_paper: ParsedPaper) -> tuple[str, Portfo
             )
             if attempt == 0:
                 # Swap content in-place for the retry; avoids rebuilding the list.
-                user_msg["content"] = CODE_RETRY_PREFIX + user_content
+                user_msg["content"] = (
+                    CODE_RETRY_PREFIX
+                    + f"Problem with your previous output: {exc}\n\n"
+                    + user_content
+                )
+        except ValueError:
+            raise  # LLM explicitly declined — do not retry
     raise ValueError("llm_invalid_json") from last_exc

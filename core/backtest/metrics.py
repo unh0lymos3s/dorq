@@ -1,9 +1,16 @@
-import base64
-import io
+"""Turn a vectorbt Portfolio into JSON-safe analytics for BacktestResult.
+
+Everything here is blocking pandas/numpy work — callers must run it in a
+thread pool (``run_in_executor``), never directly on the event loop.
+
+Unit conventions (mirrored by the UI):
+  - *_return, *_pct, max_drawdown, win_rate, volatility → percent points
+    (e.g. ``12.34`` means 12.34%).
+  - Ratios (sharpe, sortino, calmar, profit_factor) → plain floats.
+"""
 import logging
 
 import pandas as pd
-import plotly.io as pio
 
 logger = logging.getLogger(__name__)
 
@@ -11,18 +18,46 @@ logger = logging.getLogger(__name__)
 # "expectancy", whose calc_func mutates a numpy array in place and raises
 # "ValueError: assignment destination is read-only" against current
 # numpy/pandas (read-only views), reproducible with any ungrouped/non-shared
-# portfolio (position_sizing="fixed"). None of the excluded metrics are used
-# in the returned payload anyway.
+# portfolio (position_sizing="fixed"). Profit factor is recomputed manually
+# from the trade list in _trade_stats instead.
 _STATS_METRICS = [
     "total_return", "period", "sharpe_ratio", "sortino_ratio", "calmar_ratio",
     "max_dd", "win_rate", "total_trades",
 ]
 
 
-def extract_metrics(
-    portfolio,
-    price_data: dict[str, pd.DataFrame] | None = None,
-) -> dict[str, float | int | None | str]:
+def build_analytics(portfolio, bars: dict[str, pd.DataFrame], init_cash: float) -> dict:
+    """Compute every analytics field of a BacktestResult in one pass.
+
+    Returns a dict with keys ``metrics``, ``equity_curve``, ``benchmark_curve``,
+    ``drawdown_curve`` and ``trades``, ready to splat into BacktestResult.
+    """
+    trades = extract_trades(portfolio)
+    equity = _total_equity(portfolio)
+
+    metrics = extract_metrics(portfolio)
+    metrics.update(_trade_stats(trades))
+
+    benchmark_curve = compute_benchmark_curve(bars, init_cash)
+    if benchmark_curve:
+        first, last = benchmark_curve[0]["v"], benchmark_curve[-1]["v"]
+        if first > 0:
+            metrics["benchmark_return"] = round((last / first - 1) * 100, 4)
+
+    return {
+        "metrics": metrics,
+        "equity_curve": _series_to_points(equity),
+        "benchmark_curve": benchmark_curve,
+        "drawdown_curve": _series_to_points(_drawdown_pct(equity)),
+        "trades": trades,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Portfolio-level metrics
+# ---------------------------------------------------------------------------
+
+def extract_metrics(portfolio) -> dict[str, float | int | None]:
     def _get_float(key: str) -> float | None:
         try:
             val = stats.get(key)
@@ -73,12 +108,12 @@ def extract_metrics(
         if isinstance(vol, pd.Series):
             vol = vol.mean()
         # annualized_volatility() returns a fraction (e.g. 0.137); store as
-        # percentage points to match the other "[%]" stats (max_drawdown, win_rate).
+        # percent points to match the other "[%]" stats.
         volatility = round(float(vol) * 100, 4)
     except Exception:
         logger.exception("annualized_volatility computation failed")
 
-    result: dict[str, float | int | None | str] = {
+    return {
         "total_return": _get_float("Total Return [%]"),
         "annualized_return": ann,
         "sharpe_ratio": _get_float("Sharpe Ratio"),
@@ -90,14 +125,80 @@ def extract_metrics(
         "volatility": volatility,
     }
 
-    if price_data is not None:
-        try:
-            chart_b64 = portfolio_vs_candles_chart(portfolio, price_data)
-            result["portfolio_vs_candles_chart"] = chart_b64
-        except Exception:
-            logger.exception("portfolio_vs_candles_chart rendering failed")
 
-    return result
+def _trade_stats(trades: list[dict]) -> dict[str, float | None]:
+    """Profit factor and win/loss distribution from closed trades."""
+    closed = [t for t in trades if t["status"] == "closed" and t["pnl"] is not None]
+    if not closed:
+        return {
+            "profit_factor": None, "avg_win_pct": None, "avg_loss_pct": None,
+            "best_trade_pct": None, "worst_trade_pct": None,
+        }
+
+    gross_win = sum(t["pnl"] for t in closed if t["pnl"] > 0)
+    gross_loss = -sum(t["pnl"] for t in closed if t["pnl"] < 0)
+    profit_factor = round(gross_win / gross_loss, 4) if gross_loss > 0 else None
+
+    rets = [t["return_pct"] for t in closed if t["return_pct"] is not None]
+    wins = [r for r in rets if r > 0]
+    losses = [r for r in rets if r <= 0]
+
+    def _avg(xs: list[float]) -> float | None:
+        return round(sum(xs) / len(xs), 4) if xs else None
+
+    return {
+        "profit_factor": profit_factor,
+        "avg_win_pct": _avg(wins),
+        "avg_loss_pct": _avg(losses),
+        "best_trade_pct": round(max(rets), 4) if rets else None,
+        "worst_trade_pct": round(min(rets), 4) if rets else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Time-series curves
+# ---------------------------------------------------------------------------
+
+def _total_equity(portfolio) -> pd.Series:
+    """Total portfolio value over time, summed across assets when ungrouped."""
+    value = portfolio.value()
+    if isinstance(value, pd.DataFrame):
+        value = value.sum(axis=1)
+    return value
+
+
+def _drawdown_pct(equity: pd.Series) -> pd.Series:
+    """Drawdown from running peak, in percent points (0 or negative)."""
+    peak = equity.cummax()
+    return (equity / peak - 1.0) * 100
+
+
+def _series_to_points(series: pd.Series) -> list[dict]:
+    return [
+        {"t": ts.isoformat(), "v": round(float(v), 4)}
+        for ts, v in series.items()
+        if pd.notna(v)
+    ]
+
+
+def compute_benchmark_curve(bars: dict[str, pd.DataFrame], init_cash: float) -> list[dict]:
+    """Equal-weight buy-and-hold of the same assets, scaled to init_cash.
+
+    This is the baseline the strategy has to beat: put init_cash into the
+    traded universe on day one and never touch it.
+    """
+    if not bars:
+        return []
+    normalized = []
+    for df in bars.values():
+        close = df["close"].dropna()
+        if close.empty or close.iloc[0] == 0:
+            continue
+        normalized.append(close / close.iloc[0])
+    if not normalized:
+        return []
+    combined = pd.concat(normalized, axis=1).ffill().mean(axis=1) * init_cash
+    return _series_to_points(combined)
 
 
 def extract_price_series(price_data: dict[str, pd.DataFrame]) -> dict[str, list[dict]]:
@@ -141,89 +242,3 @@ def extract_trades(portfolio) -> list[dict]:
         except Exception:
             logger.exception("extract_trades: skipping unreadable trade row")
     return trades
-
-
-def render_charts(portfolio) -> list[str]:
-    charts = []
-    try:
-        fig = portfolio.plot()
-        png_bytes = pio.to_image(fig, format="png")
-        charts.append(base64.b64encode(png_bytes).decode())
-    except Exception:
-        logger.exception("chart rendering failed")
-    return charts
-
-
-def portfolio_vs_candles_chart(
-    portfolio,
-    price_data: dict[str, pd.DataFrame],
-) -> str:
-    """Return base64-encoded PNG: portfolio cumulative returns plotted against
-    the first asset's close price on a dual y-axis chart.
-
-    Left axis: portfolio cumulative return (%).
-    Right axis: close price of the first symbol in price_data.
-    Style: dark background (#0d0d0d), portfolio line in #00ff88, price line in #888888.
-    """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    # --- portfolio cumulative returns ---
-    try:
-        cum_returns: pd.Series = portfolio.cumulative_returns() * 100
-        if isinstance(cum_returns, pd.DataFrame):
-            # multi-asset: average across columns
-            cum_returns = cum_returns.mean(axis=1)
-    except Exception:
-        logger.exception("portfolio_vs_candles_chart: failed to compute cumulative returns")
-        raise
-
-    # --- first asset close price ---
-    first_symbol = next(iter(price_data))
-    close_price: pd.Series = price_data[first_symbol]["close"]
-
-    # Align to the intersection of both indices
-    common_idx = cum_returns.index.intersection(close_price.index)
-    cum_returns = cum_returns.loc[common_idx]
-    close_price = close_price.loc[common_idx]
-
-    # --- plot ---
-    bg = "#0d0d0d"
-    fig, ax1 = plt.subplots(figsize=(12, 5), facecolor=bg)
-    ax1.set_facecolor(bg)
-
-    ax1.plot(cum_returns.index, cum_returns.values, color="#00ff88", linewidth=1.5, label="Portfolio Return %")
-    ax1.set_ylabel("Cumulative Return (%)", color="#00ff88", fontsize=10)
-    ax1.tick_params(axis="y", colors="#00ff88")
-    ax1.tick_params(axis="x", colors="#888888")
-    ax1.spines["bottom"].set_color("#333333")
-    ax1.spines["left"].set_color("#00ff88")
-    ax1.spines["top"].set_visible(False)
-    ax1.spines["right"].set_visible(False)
-    ax1.grid(axis="y", color="#1a1a1a", linewidth=0.5)
-
-    ax2 = ax1.twinx()
-    ax2.set_facecolor(bg)
-    ax2.plot(close_price.index, close_price.values, color="#888888", linewidth=1.0, alpha=0.7, label=f"{first_symbol} Close")
-    ax2.set_ylabel(f"{first_symbol} Close Price", color="#888888", fontsize=10)
-    ax2.tick_params(axis="y", colors="#888888")
-    ax2.spines["bottom"].set_color("#333333")
-    ax2.spines["right"].set_color("#888888")
-    ax2.spines["top"].set_visible(False)
-    ax2.spines["left"].set_visible(False)
-
-    # Combined legend
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, facecolor="#111111", edgecolor="#333333",
-               labelcolor="white", fontsize=9, loc="upper left")
-
-    fig.patch.set_facecolor(bg)
-    plt.tight_layout()
-
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=100, facecolor=bg, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return base64.b64encode(buf.read()).decode()

@@ -16,6 +16,7 @@ from fastapi import HTTPException
 
 ERR_ALPACA_FETCH = "alpaca_fetch_error"
 ERR_ALPACA_NOT_CONFIGURED = "alpaca_not_configured"
+ERR_OLLAMA_NOT_CONFIGURED = "ollama_not_configured"
 ERR_BACKTEST_RUNTIME = "backtest_runtime_error"
 ERR_LLM_INVALID_JSON = "llm_invalid_json"
 ERR_DOCLING_PARSE = "docling_parse_error"
@@ -23,6 +24,7 @@ ERR_INTERNAL = "internal_error"
 ERR_STRATEGY_RUNTIME = "strategy_runtime_error"
 ERR_NOT_FOUND = "not_found"
 ERR_MISSING_CONTEXT = "missing_context"
+ERR_PAPER_NOT_READY = "paper_not_ready"
 
 
 def raise_http(status: int, code: str, detail: str) -> NoReturn:

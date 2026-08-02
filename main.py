@@ -10,9 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import backtest, papers, strategies
+from api.routes import backtest, memory, papers, strategies
 from api.routes import chat as chat_routes
 from config import settings
+from core.memory import MemoryEngine
 from core.stores import LRUStore
 
 _LOG_LEVEL = settings.log_level.upper()
@@ -51,6 +52,16 @@ async def lifespan(app: FastAPI):
     app.state.papers = LRUStore(maxsize=128)
     app.state.strategies = LRUStore(maxsize=128)
     app.state.backtests = LRUStore(maxsize=128)
+
+    app.state.memory = MemoryEngine(
+        settings.memory_dir,
+        ollama_base_url=settings.ollama_base_url,
+        embed_model=settings.ollama_embed_model,
+    )
+    n_papers, n_strategies = await app.state.memory.reload_into(
+        app.state.papers, app.state.strategies
+    )
+    log.info("startup.memory_reloaded papers=%d strategies=%d", n_papers, n_strategies)
     yield
 
 
@@ -67,6 +78,7 @@ app.include_router(papers.router)
 app.include_router(strategies.router)
 app.include_router(backtest.router)
 app.include_router(chat_routes.router)
+app.include_router(memory.router)
 
 
 @app.exception_handler(Exception)

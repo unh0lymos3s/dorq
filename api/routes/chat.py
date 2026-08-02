@@ -7,9 +7,16 @@ import json
 import logging
 
 from fastapi import APIRouter, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from core.errors import ERR_MISSING_CONTEXT, ERR_NOT_FOUND, raise_http
+from config import settings
+from core.errors import (
+    ERR_MISSING_CONTEXT,
+    ERR_NOT_FOUND,
+    ERR_OLLAMA_NOT_CONFIGURED,
+    ERR_PAPER_NOT_READY,
+    raise_http,
+)
 from core.llm.client import build_litellm_kwargs, complete
 from core.llm.prompts import (
     CHAT_PAPER_CONTEXT,
@@ -22,9 +29,10 @@ logger = logging.getLogger("dorq." + __name__)
 
 
 class ChatRequest(BaseModel):
-    question: str
-    paper_id: str | None = None
-    strategy_id: str | None = None  # corresponds to a backtest_id stored in app.state.backtests
+    # Bounded input: a single question, not an unbounded prompt surface.
+    question: str = Field(min_length=1, max_length=4_000)
+    paper_id: str | None = Field(default=None, max_length=128)
+    strategy_id: str | None = Field(default=None, max_length=128)  # a backtest_id in app.state.backtests
 
 
 class ChatResponse(BaseModel):
@@ -33,6 +41,12 @@ class ChatResponse(BaseModel):
 
 @router.post("", response_model=ChatResponse)
 async def chat(request: Request, body: ChatRequest) -> ChatResponse:
+    if not settings.ollama_configured:
+        raise_http(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            ERR_OLLAMA_NOT_CONFIGURED,
+            "No model configured — set DORQ_OLLAMA_MODEL to an Ollama model tag",
+        )
     if body.paper_id is None and body.strategy_id is None:
         raise_http(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -52,7 +66,15 @@ async def chat(request: Request, body: ChatRequest) -> ChatResponse:
                 ERR_NOT_FOUND,
                 f"paper {body.paper_id!r} not found",
             )
-        parsed = entry["parsed"]
+        parsed = entry.get("parsed")
+        if parsed is None:
+            logger.info("chat.paper not_ready paper_id=%s status=%s",
+                        body.paper_id, entry.get("status", "parsing"))
+            raise_http(
+                status.HTTP_409_CONFLICT,
+                ERR_PAPER_NOT_READY,
+                "paper is still parsing",
+            )
         context_parts.append(
             CHAT_PAPER_CONTEXT.format(paper_markdown=parsed.full_markdown[:12_000])
         )

@@ -48,12 +48,17 @@ def _write_tmp_pdf(pdf_bytes: bytes) -> str:
     return path
 
 
-async def parse_pdf(pdf_bytes: bytes) -> str:
+def validate_pdf(pdf_bytes: bytes) -> None:
+    """Cheap sanity checks, callable synchronously before a parse is queued."""
     # Validate without slicing (slicing allocates a new bytes object).
     if len(pdf_bytes) > _MAX_PDF_BYTES:
         raise ValueError("docling_parse_error: file exceeds 50 MB limit")
     if not pdf_bytes.startswith(_PDF_MAGIC):
         raise ValueError("docling_parse_error: file is not a valid PDF")
+
+
+async def parse_pdf(pdf_bytes: bytes) -> str:
+    validate_pdf(pdf_bytes)
 
     tmp_path = _write_tmp_pdf(pdf_bytes)
     try:

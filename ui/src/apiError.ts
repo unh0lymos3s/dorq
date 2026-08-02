@@ -24,6 +24,17 @@ interface ErrorEnvelope {
   detail?: string | { error?: string; detail?: string }
 }
 
+/** Map a raw error code/detail string to a friendly, actionable line.
+ *  Returns the input unchanged when nothing matches. */
+export function friendlyDetail(message: string, code?: string): string {
+  if (code && FRIENDLY[code]) return FRIENDLY[code]
+  if (FRIENDLY[message]) return FRIENDLY[message]
+  for (const [prefix, fn] of DETAIL_PREFIX) {
+    if (message.startsWith(prefix)) return fn(message.slice(prefix.length))
+  }
+  return message
+}
+
 export async function friendlyError(res: Response): Promise<Error> {
   let code: string | undefined
   let message = `Request failed (HTTP ${res.status})`
@@ -40,14 +51,8 @@ export async function friendlyError(res: Response): Promise<Error> {
     // non-JSON body — keep default message
   }
 
-  // Map a known error code to a friendly, actionable line.
-  if (code && FRIENDLY[code]) return new Error(FRIENDLY[code])
-  if (FRIENDLY[message]) return new Error(FRIENDLY[message])
-
-  // Prefix match against the raw detail text.
-  for (const [prefix, fn] of DETAIL_PREFIX) {
-    if (message.startsWith(prefix)) return new Error(fn(message.slice(prefix.length)))
-  }
+  const friendly = friendlyDetail(message, code)
+  if (friendly !== message) return new Error(friendly)
 
   // HTTP status fallbacks
   if (res.status === 404) return new Error('Resource not found.')
