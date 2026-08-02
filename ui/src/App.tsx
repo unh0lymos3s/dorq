@@ -12,6 +12,7 @@ import Step2Strategy from './steps/Step2Strategy'
 import Step3Backtest from './steps/Step3Backtest'
 import Step4Results from './steps/Step4Results'
 import { useMediaQuery } from './lib/useMediaQuery'
+import logo from './dorq-logo.png'
 
 const SUN = (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -217,7 +218,7 @@ export default function App() {
       </div>
       <div className="app">
         <header className="topbar">
-          <div className="brand">dorq</div>
+          <img className="brand" src={logo} alt="dorq" />
           <div className="topbar-right">
             {config && (
               <span className="status-pill" title="Local model serving this app">
