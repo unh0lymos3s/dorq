@@ -128,9 +128,17 @@ a { color: inherit; }
   display: block;
   line-height: 0;
 }
+/* Sized so the hero's two buttons land at the bottom of the first screen:
+   take the viewport, subtract the fixed stack below the mark (topbar padding
+   40 + hero top 20 + h1 151 + sub 122 + pipeline pill 66 + actions 74 ≈ 473,
+   plus slack), and give the rest to the wordmark. The second term keeps it
+   from running wider than the viewport on narrow screens (aspect 1.736:1). */
 .brand img {
   display: block;
-  height: 80px;
+  height: min(
+    clamp(96px, calc(100vh - 490px), 440px),
+    calc((100vw - 48px) / 1.736)
+  );
   width: auto;
 }
 
@@ -417,7 +425,7 @@ a.chip:hover { border-color: var(--hair-strong); color: var(--ink); }
 
 <div class="page">
   <header class="topbar">
-    <a class="brand" href="#"><img src="dorq-logo.png" alt="dorq" width="417" height="240" /></a>
+    <a class="brand" href="#"><img src="dorq-logo.png" alt="dorq" width="1151" height="663" /></a>
     <div class="topbar-right">
       <a class="icon-btn text-btn" href="https://github.com/unh0lymos3s/dorq" target="_blank" rel="noopener">github</a>
       <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">
